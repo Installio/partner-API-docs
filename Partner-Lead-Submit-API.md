@@ -483,9 +483,6 @@ The **`estimate`** object below matches a **real** Spruce `POST /v1/estimates` r
 | `estimate_url` | string \| omitted | Same role as `url` if Spruce uses this alias |
 | `estimates` | array | One object per sizing / scenario returned by Spruce |
 
-**Each `estimate.estimates[]` row — fields observed from Spruce**
-
-Numeric types in the API are often integers or doubles; clients may receive either. **`customer_discount_rate_percent`** and **`discounted_total_price_including_grants_pence`** are **added by this backend** on each row (see [Partner Estimate API — customer discount](./partnerEstimateSubmit.md#51-customer-discount-ecs-heat-pump-pricing)).
 
 | Field | Type | Description |
 | ----- | ---- | ----------- |
