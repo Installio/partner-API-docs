@@ -400,7 +400,7 @@ Default: `sqm`.
 
 ### 6.2 Example success body (estimate present)
 
-The **`estimate`** object below matches a **real** Spruce `POST /v1/estimates` response shape (as stored on the lead). Spruce may add or rename fields over time—treat undocumented keys as opaque. Pricing fields can be **negative** when grants exceed net customer cost.
+The **`estimate`** object below matches a **real** Spruce `POST /v1/estimates` response shape (as stored on the lead). Spruce may add or rename fields over time—treat undocumented keys as opaque. Grant-inclusive totals in **pence** can be **negative** when subsidies exceed net customer cost (this example shows positive values).
 
 ```json
 {
@@ -423,42 +423,53 @@ The **`estimate`** object below matches a **real** Spruce `POST /v1/estimates` r
     "url": "https://api.spruce.eco/estimate/00000000-0000-4000-8000-000000000001",
     "estimates": [
       {
-        "annual_heat_energy_demand_w": 17677440,
-        "average_heat_pump_efficiency": 3.25,
-        "co2_saved_kg": 3527,
-        "commutes_saved_petrol_car": 979,
-        "customer_discount_rate_percent": 0.15,
-        "discounted_total_price_including_grants_pence": -637500,
+        "annual_heat_energy_demand_w": 11867370,
+        "average_heat_pump_efficiency": 3.94,
+        "co2_saved_kg": 2455,
+        "commutes_saved_petrol_car": 681,
         "efficiency_baseline": 0.87,
-        "electricity_tariff_baseline_annual_bill_gbp": 1286,
+        "electricity_tariff_baseline_annual_bill_gbp": 863,
         "electricity_tariff_baseline_pence_per_kwh": 6.33,
         "electricity_tariff_baseline_price_cap_pence_per_kwh": 25.73,
-        "electricity_tariff_heat_pump_annual_bill_gbp": 1121,
-        "electricity_tariff_heat_pump_annual_bill_price_cap_gbp": 1401,
+        "electricity_tariff_heat_pump_annual_bill_gbp": 620,
+        "electricity_tariff_heat_pump_annual_bill_price_cap_gbp": 774,
         "electricity_tariff_heat_pump_based_on": "Based on Octopus's expectations of customer consumption patterns on the cosy octopus tariff as of July 2025",
         "electricity_tariff_heat_pump_pence_per_kwh": 20.6,
-        "flights_to_spain_saved": 18,
+        "flights_to_spain_saved": 12,
         "flow_temp_c": 45,
         "fuel_name_baseline": "Mains Gas",
-        "heat_pumps": [],
-        "hot_water_cylinders": [],
+        "heat_pumps": [
+          {
+            "calculated_capacity_w": 4550,
+            "calculated_scop": 4.13,
+            "inventory_heat_pump_name": "Grant HP R290 4"
+          }
+        ],
+        "hot_water_cylinders": [
+          {
+            "capacity_l": 180,
+            "inventory_hot_water_cylinder_name": "UK Elite Cylinder Heat Pump 180L 545(D)x1313(H) - ESHPD3180"
+          }
+        ],
         "internal_temp_c": 20,
         "outdoor_temp_c": -1.7,
-        "overall_scop": 3.6,
+        "overall_scop": 4.13,
         "price_cap_description": "Price cap 1st July - 30th September 2025",
-        "total_heat_loss_w": 5920,
-        "total_price_excluding_grants_pence": 0,
-        "total_price_including_grants_pence": -750000
+        "total_heat_loss_w": 3336,
+        "total_price_excluding_grants_pence": 1226580,
+        "total_price_including_grants_pence": 476580,
+        "customer_discount_rate_percent": 0.15,
+        "discounted_total_price_including_grants_pence": 405093
       }
     ]
   },
   "estimateSummary": {
     "url": "https://api.spruce.eco/estimate/00000000-0000-4000-8000-000000000001",
     "estimateCount": 1,
-    "totalHeatLossW": 5920,
-    "totalPriceIncludingGrantsPence": -750000,
+    "totalHeatLossW": 3336,
+    "totalPriceIncludingGrantsPence": 476580,
     "customer_discount_rate_percent": 0.15,
-    "discounted_total_price_including_grants_pence": -637500
+    "discounted_total_price_including_grants_pence": 405093
   },
   "warnings": []
 }
@@ -493,8 +504,8 @@ Numeric types in the API are often integers or doubles; clients may receive eith
 | `flights_to_spain_saved` | number | Flights-equivalent savings metric |
 | `flow_temp_c` | number | Design flow temperature (°C) |
 | `fuel_name_baseline` | string | Baseline fuel label (e.g. `"Mains Gas"`) |
-| `heat_pumps` | array | Selected heat pump line items (structure defined by Spruce) |
-| `hot_water_cylinders` | array | Cylinder line items (structure defined by Spruce) |
+| `heat_pumps` | array | Selected heat pump line items; each element may include e.g. `calculated_capacity_w`, `calculated_scop`, `inventory_heat_pump_name` |
+| `hot_water_cylinders` | array | Cylinder line items; each element may include e.g. `capacity_l`, `inventory_hot_water_cylinder_name` |
 | `internal_temp_c` | number | Internal design temperature (°C) |
 | `outdoor_temp_c` | number | Outdoor design temperature (°C) |
 | `overall_scop` | number | Overall SCOP |
