@@ -381,16 +381,146 @@ Default: `sqm`.
     "error": "string | null",
     "retryable": "boolean"
   },
+  "hubspot": {
+    "status": "pending",
+    "message": "HubSpot sync runs via Firestore after Spruce completes"
+  },
   "estimate": "object | null",
+  "estimateSummary": "object | null",
   "warnings": ["string"]
 }
 ```
 
 - `leadId` — Firestore document ID in `leads` collection
-- `spruce.status` — `submitted` when Spruce accepted; `pending` when submission failed
-- `estimate` — Heat-loss estimate from Spruce; may be `null` if estimate request failed
+- `spruce.status` — `submitted` when Spruce accepted the job; `pending` when job creation failed (may be retried server-side; see `retryable`)
+- `hubspot` — HubSpot push is asynchronous; status becomes `submitted` on the lead document after the Firestore trigger succeeds
+- `estimate` — Full JSON from Spruce `POST /v1/estimates` on success, with extra pricing fields on each `estimates[]` row (see below); `null` if the estimate request failed
+- `estimateSummary` — Small convenience object derived from the first `estimates[]` row; `null` if `estimate` is `null`
+- `warnings` — e.g. rate-limiter fallback messages when applicable
 
-### 6.2 Error (HTTP 4xx, 5xx)
+### 6.2 Example success body (estimate present)
+
+The **`estimate`** object below matches a **real** Spruce `POST /v1/estimates` response shape (as stored on the lead). Spruce may add or rename fields over time—treat undocumented keys as opaque. Pricing fields can be **negative** when grants exceed net customer cost.
+
+```json
+{
+  "success": true,
+  "partnerId": "acme-ltd",
+  "leadId": "abc123firestoreId",
+  "spruce": {
+    "status": "submitted",
+    "uuid": "00000000-0000-4000-8000-000000000000",
+    "url": "https://example.spruce.app/jobs/...",
+    "jobReference": "SP-12345",
+    "error": null,
+    "retryable": false
+  },
+  "hubspot": {
+    "status": "pending",
+    "message": "HubSpot sync runs via Firestore after Spruce completes"
+  },
+  "estimate": {
+    "url": "https://api.spruce.eco/estimate/00000000-0000-4000-8000-000000000001",
+    "estimates": [
+      {
+        "annual_heat_energy_demand_w": 17677440,
+        "average_heat_pump_efficiency": 3.25,
+        "co2_saved_kg": 3527,
+        "commutes_saved_petrol_car": 979,
+        "customer_discount_rate_percent": 0.15,
+        "discounted_total_price_including_grants_pence": -637500,
+        "efficiency_baseline": 0.87,
+        "electricity_tariff_baseline_annual_bill_gbp": 1286,
+        "electricity_tariff_baseline_pence_per_kwh": 6.33,
+        "electricity_tariff_baseline_price_cap_pence_per_kwh": 25.73,
+        "electricity_tariff_heat_pump_annual_bill_gbp": 1121,
+        "electricity_tariff_heat_pump_annual_bill_price_cap_gbp": 1401,
+        "electricity_tariff_heat_pump_based_on": "Based on Octopus's expectations of customer consumption patterns on the cosy octopus tariff as of July 2025",
+        "electricity_tariff_heat_pump_pence_per_kwh": 20.6,
+        "flights_to_spain_saved": 18,
+        "flow_temp_c": 45,
+        "fuel_name_baseline": "Mains Gas",
+        "heat_pumps": [],
+        "hot_water_cylinders": [],
+        "internal_temp_c": 20,
+        "outdoor_temp_c": -1.7,
+        "overall_scop": 3.6,
+        "price_cap_description": "Price cap 1st July - 30th September 2025",
+        "total_heat_loss_w": 5920,
+        "total_price_excluding_grants_pence": 0,
+        "total_price_including_grants_pence": -750000
+      }
+    ]
+  },
+  "estimateSummary": {
+    "url": "https://api.spruce.eco/estimate/00000000-0000-4000-8000-000000000001",
+    "estimateCount": 1,
+    "totalHeatLossW": 5920,
+    "totalPriceIncludingGrantsPence": -750000,
+    "customer_discount_rate_percent": 0.15,
+    "discounted_total_price_including_grants_pence": -637500
+  },
+  "warnings": []
+}
+```
+
+**`estimate` top-level**
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `url` | string \| omitted | Heat-loss report page URL (primary) |
+| `estimate_url` | string \| omitted | Same role as `url` if Spruce uses this alias |
+| `estimates` | array | One object per sizing / scenario returned by Spruce |
+
+**Each `estimate.estimates[]` row — fields observed from Spruce**
+
+Numeric types in the API are often integers or doubles; clients may receive either. **`customer_discount_rate_percent`** and **`discounted_total_price_including_grants_pence`** are **added by this backend** on each row (see [Partner Estimate API — customer discount](./partnerEstimateSubmit.md#51-customer-discount-ecs-heat-pump-pricing)).
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `annual_heat_energy_demand_w` | number | Annual heat energy demand (watt-hours basis per Spruce model) |
+| `average_heat_pump_efficiency` | number | Average heat pump efficiency (ratio) |
+| `co2_saved_kg` | number | CO₂ savings vs baseline (kg) |
+| `commutes_saved_petrol_car` | number | Commute-equivalent savings metric |
+| `efficiency_baseline` | number | Baseline system efficiency (e.g. gas boiler) |
+| `electricity_tariff_baseline_annual_bill_gbp` | number | Baseline annual electricity bill (£GBP integer in observed payloads) |
+| `electricity_tariff_baseline_pence_per_kwh` | number | Baseline tariff (p/kWh) |
+| `electricity_tariff_baseline_price_cap_pence_per_kwh` | number | Baseline cap reference (p/kWh) |
+| `electricity_tariff_heat_pump_annual_bill_gbp` | number | Heat-pump scenario annual bill (£GBP) |
+| `electricity_tariff_heat_pump_annual_bill_price_cap_gbp` | number | Heat-pump bill under price-cap assumption (£GBP) |
+| `electricity_tariff_heat_pump_based_on` | string | Human-readable tariff / methodology note |
+| `electricity_tariff_heat_pump_pence_per_kwh` | number | Effective heat-pump tariff (p/kWh) |
+| `flights_to_spain_saved` | number | Flights-equivalent savings metric |
+| `flow_temp_c` | number | Design flow temperature (°C) |
+| `fuel_name_baseline` | string | Baseline fuel label (e.g. `"Mains Gas"`) |
+| `heat_pumps` | array | Selected heat pump line items (structure defined by Spruce) |
+| `hot_water_cylinders` | array | Cylinder line items (structure defined by Spruce) |
+| `internal_temp_c` | number | Internal design temperature (°C) |
+| `outdoor_temp_c` | number | Outdoor design temperature (°C) |
+| `overall_scop` | number | Overall SCOP |
+| `price_cap_description` | string | Label for the price-cap period used |
+| `total_heat_loss_w` | number | Total heat loss (W) |
+| `total_price_excluding_grants_pence` | number | Installation total (**pence**) before grants |
+| `total_price_including_grants_pence` | number | Total (**pence**) after grants—can be negative if grants exceed cost |
+| `customer_discount_rate_percent` | number | **Added by this API:** contractual discount decimal (e.g. `0.15` = 15%) |
+| `discounted_total_price_including_grants_pence` | number \| null | **Added by this API:** `total_price_including_grants_pence * (1 - customer_discount_rate_percent)`, rounded; `null` if source price missing |
+
+Spruce may also return **camelCase** equivalents for some quantities (e.g. `totalHeatLossW`, `totalPriceIncludingGrantsPence`); this backend reads those in **`estimateSummary`** when building the summary from the first row.
+
+**`estimateSummary` (when `estimate` succeeds)**
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `url` | string \| null | Report URL (from `estimate.url` or `estimate.estimate_url`) |
+| `estimateCount` | number | `estimate.estimates.length` |
+| `totalHeatLossW` | number \| null | From first row: `total_heat_loss_w` or `totalHeatLossW` |
+| `totalPriceIncludingGrantsPence` | number \| null | From first row: `total_price_including_grants_pence` or `totalPriceIncludingGrantsPence` |
+| `customer_discount_rate_percent` | number | Discount rate applied (from first row or partner default) |
+| `discounted_total_price_including_grants_pence` | number \| null | From first row after enrichment |
+
+When the estimate call fails, **`estimate`** and **`estimateSummary`** are both **`null`**; the HTTP response is still **200** if the lead was created and the response is otherwise successful.
+
+### 6.3 Error (HTTP 4xx, 5xx)
 
 ```json
 {
@@ -399,7 +529,7 @@ Default: `sqm`.
 }
 ```
 
-### 6.3 HTTP Status Codes
+### 6.4 HTTP Status Codes
 
 ```json
 {
