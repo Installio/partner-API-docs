@@ -1,6 +1,6 @@
 # Technical Specification: Partner Lead Submit API
 
-**Version:** 1.0  
+**Version:** 1.1  
 **Endpoint:** `partnerLeadSubmit`  
 **Purpose:** Accept lead submissions from partner systems via API key authentication.
 
@@ -9,6 +9,8 @@
 ## 1. Overview
 
 The Partner Lead Submit API lets you submit leads from your own systems—CRMs, websites, or internal tools—without embedding the widget. Send customer and property details in a single request and receive a lead ID, heat-loss estimate, and job reference.
+
+The same request can also include an optional `callbackRequest` object. This supports the ECS single-call flow where job creation and callback preferences are submitted together instead of as two separate requests.
 
 **Use cases:** Integrate lead capture from your website forms, sync leads from your CRM, or automate submissions from other data sources.
 
@@ -64,7 +66,7 @@ The body must be a JSON object. Two formats are supported:
 
 **Direct format** — widget fields at root level.
 
-**Wrapped format** — widget fields nested under `data`; optional `partnerId` at root for validation.
+**Wrapped format** — widget fields nested under `data`; optional `partnerId` and `callbackRequest` at root for validation.
 
 ### 3.2 Required Fields
 
@@ -144,11 +146,68 @@ These fields are mandatory. Validation fails if missing or invalid.
 ```json
 {
   "partnerId": "string (optional; if present, must match API key's partner)",
+  "callbackRequest": "object (optional; same shape as section 3.7)",
   "data": {
     /* widget fields */
   }
 }
 ```
+
+### 3.7 Optional callback request
+
+Use this when the partner wants to create the lead/job and include callback preferences in the same request.
+
+The recommended location is top-level `callbackRequest`, but wrapped payloads may also send the same object under `data.callbackRequest`. Snake-case aliases are also accepted for interoperability.
+
+For compatibility, the same callback fields can also be sent as flat fields at root level or under `data` (without nesting under `callbackRequest`).
+
+```json
+{
+  "callbackRequest": {
+    "questionsForCall": "string (optional, trimmed, max 8000 chars)",
+    "preferredCallTimeSlots": ["string"],
+    "preferredCallDays": ["string"]
+  }
+}
+```
+
+Supported aliases inside the callback object:
+
+- `questionsForCall` or `questions_for_call`
+- `preferredCallTimeSlots` or `preferred_call_time_slots`
+- `preferredCallDays` or `preferred_call_days`
+
+Accepted flat locations (same field names/aliases):
+
+- root level (e.g. `questionsForCall`, `preferredCallDays`)
+- `data` level (e.g. `data.questionsForCall`, `data.preferredCallDays`)
+
+Current widget values are:
+
+- `preferredCallTimeSlots`: `9-12`, `12-14`, `14-16`, `16-18`
+- `preferredCallDays`: `monday`, `tuesday`, `wednesday`, `thursday`, `friday`
+
+When present, the backend normalizes the object and stores:
+
+- `questionsForCall` as a trimmed string
+- `preferredCallTimeSlots` as a trimmed string array (max 32 values)
+- `preferredCallDays` as a trimmed string array (max 32 values)
+- `submittedAt` as an ISO timestamp
+
+### 3.8 Optional ECS integration metadata (INS-674 alignment)
+
+For ECS middleware, use this in the same `create_job` request that also contains `callbackRequest`.
+
+These fields are optional and are persisted on the lead under `ecs`, then echoed in the success response.
+
+| Semantic field            | Under `ecs`                              | Root-level aliases                            | Type   |
+| ------------------------- | ---------------------------------------- | --------------------------------------------- | ------ |
+| External identifier       | `externalId` or `external_id`            | `ecsExternalId`, `ecs_external_id`            | string |
+| Correlation / trace id    | `correlationId` or `correlation_id`      | `ecsCorrelationId`, `ecs_correlation_id`      | string |
+| Installio job reference   | `installioJobRef` or `installio_job_ref` | `ecsInstallioJobRef`, `ecs_installio_job_ref` | string |
+| Free-form metadata object | `metadata`                               | `ecsMetadata`                                 | object |
+
+`metadata` must be a JSON object if provided.
 
 ---
 
@@ -307,7 +366,12 @@ Default: `sqm`.
   "externalSpace": "yes",
   "cylinderSpace": "yes",
   "renovating": "no",
-  "goals": "reduce_bills"
+  "goals": "reduce_bills",
+  "callbackRequest": {
+    "questionsForCall": "Can you explain the installation timeline?",
+    "preferredCallTimeSlots": ["9-12", "14-16"],
+    "preferredCallDays": ["monday", "wednesday"]
+  }
 }
 ```
 
@@ -358,7 +422,49 @@ Default: `sqm`.
   "cylinderSpace": "yes",
   "renovating": "no",
   "goals": "reduce_bills",
-  "questionsForTeam": "When can you start?"
+  "questionsForTeam": "When can you start?",
+  "callbackRequest": {
+    "questionsForCall": "What happens after the survey?",
+    "preferredCallTimeSlots": ["12-14"],
+    "preferredCallDays": ["tuesday", "thursday"]
+  }
+}
+```
+
+### 5.4 ECS single-call create job + callback (recommended)
+
+```json
+{
+  "data": {
+    "customerName": "Jane Smith",
+    "customerEmail": "jane.smith@example.com",
+    "customerPhone": "07123456789",
+    "address": "123 High Street, London",
+    "addressPostcode": "SW1A 1AA",
+    "propertyType": "house",
+    "propertyDescription": "detached",
+    "bedrooms": 3,
+    "floorArea": 120,
+    "floorAreaUnit": "sqm",
+    "fuelType": "mains_gas",
+    "wallType": "cavity_wall",
+    "cavityWallInsulation": "insulated",
+    "windowType": "double_glazed",
+    "roofInsulation": "100mm",
+    "callbackRequest": {
+      "questionsForCall": "Please call after 2pm.",
+      "preferredCallTimeSlots": ["14-16"],
+      "preferredCallDays": ["tuesday", "thursday"]
+    }
+  },
+  "ecs": {
+    "externalId": "ecs-job-001",
+    "correlationId": "550e8400-e29b-41d4-a716-446655440000",
+    "installioJobRef": "installio-ref-123",
+    "metadata": {
+      "sourceSystem": "ecs-middleware"
+    }
+  }
 }
 ```
 
@@ -385,8 +491,21 @@ Default: `sqm`.
     "status": "pending",
     "message": "HubSpot sync runs via Firestore after Spruce completes"
   },
+  "ecs": {
+    "externalId": "string | null",
+    "correlationId": "string | null",
+    "installioJobRef": "string | null",
+    "metadata": "object | null"
+  },
+  "callbackRequest": {
+    "questionsForCall": "string",
+    "preferredCallTimeSlots": ["string"],
+    "preferredCallDays": ["string"],
+    "submittedAt": "2026-04-01T10:00:00.000Z"
+  },
   "estimate": "object | null",
   "estimateSummary": "object | null",
+  "lead": "object | null",
   "warnings": ["string"]
 }
 ```
@@ -394,8 +513,11 @@ Default: `sqm`.
 - `leadId` — Firestore document ID in `leads` collection
 - `spruce.status` — `submitted` when Spruce accepted the job; `pending` when job creation failed (may be retried server-side; see `retryable`)
 - `hubspot` — HubSpot push is asynchronous; status becomes `submitted` on the lead document after the Firestore trigger succeeds
+- `ecs` — normalized ECS integration metadata when supplied; otherwise keys are present with `null` values
+- `callbackRequest` — normalized callback object when supplied; otherwise `null`. When callback data is supplied, response always includes `questionsForCall`, `preferredCallTimeSlots`, `preferredCallDays`, and `submittedAt`.
 - `estimate` — Full JSON from Spruce `POST /v1/estimates` on success, with extra pricing fields on each `estimates[]` row (see below); `null` if the estimate request failed
 - `estimateSummary` — Small convenience object derived from the first `estimates[]` row; `null` if `estimate` is `null`
+- `lead` — Latest Firestore lead snapshot after create + Spruce/estimate update (full stored document). Returned as `null` only if snapshot read fails.
 - `warnings` — e.g. rate-limiter fallback messages when applicable
 
 ### 6.2 Example success body (estimate present)
@@ -418,6 +540,12 @@ The **`estimate`** object below matches a **real** Spruce `POST /v1/estimates` r
   "hubspot": {
     "status": "pending",
     "message": "HubSpot sync runs via Firestore after Spruce completes"
+  },
+  "callbackRequest": {
+    "questionsForCall": "Can you explain the installation timeline?",
+    "preferredCallTimeSlots": ["9-12", "14-16"],
+    "preferredCallDays": ["monday", "wednesday"],
+    "submittedAt": "2026-04-01T10:00:00.000Z"
   },
   "estimate": {
     "url": "https://api.spruce.eco/estimate/00000000-0000-4000-8000-000000000001",
@@ -471,64 +599,143 @@ The **`estimate`** object below matches a **real** Spruce `POST /v1/estimates` r
     "customer_discount_rate_percent": 0.15,
     "discounted_total_price_including_grants_pence": 405093
   },
+  "lead": {
+    "id": "abc123firestoreId",
+    "partnerId": "acme-ltd",
+    "status": "new",
+    "submissionChannel": "partner_lead_api",
+    "property": {
+      "address": "123 High Street, London",
+      "postcode": "SW1A 1AA",
+      "propertyType": "house",
+      "bedrooms": 3,
+      "floorArea": 120
+    },
+    "customer": {
+      "firstName": "Jane",
+      "lastName": "Smith",
+      "email": "jane.smith@example.com",
+      "phone": "07123456789"
+    },
+    "hasEPC": "yes",
+    "epcData": {
+      "postcode": "SW1A 1AA"
+    },
+    "qualifyingQuestions": {
+      "goals": "reduce_bills"
+    },
+    "ecs": {
+      "externalId": "ecs-job-001",
+      "correlationId": "550e8400-e29b-41d4-a716-446655440000",
+      "installioJobRef": "installio-ref-123",
+      "metadata": {
+        "sourceSystem": "ecs-middleware"
+      }
+    },
+    "callbackRequest": {
+      "questionsForCall": "Can you explain the installation timeline?",
+      "preferredCallTimeSlots": ["9-12", "14-16"],
+      "preferredCallDays": ["monday", "wednesday"],
+      "submittedAt": "2026-04-01T10:00:00.000Z"
+    },
+    "spruce": {
+      "status": "submitted",
+      "uuid": "00000000-0000-4000-8000-000000000000",
+      "jobReference": "SP-12345",
+      "estimateUrl": "https://api.spruce.eco/estimate/00000000-0000-4000-8000-000000000001"
+    },
+    "hubspot": {
+      "status": "pending"
+    },
+    "estimate": {},
+    "metadata": {
+      "userAgent": "string",
+      "referer": "string",
+      "ip": "string"
+    },
+    "createdAt": "2026-04-01T10:00:00.000Z",
+    "updatedAt": "2026-04-01T10:00:01.000Z"
+  },
   "warnings": []
 }
 ```
 
 **`estimate` top-level**
 
-| Field | Type | Description |
-| ----- | ---- | ----------- |
-| `url` | string \| omitted | Heat-loss report page URL (primary) |
-| `estimate_url` | string \| omitted | Same role as `url` if Spruce uses this alias |
-| `estimates` | array | One object per sizing / scenario returned by Spruce |
+| Field          | Type              | Description                                         |
+| -------------- | ----------------- | --------------------------------------------------- |
+| `url`          | string \| omitted | Heat-loss report page URL (primary)                 |
+| `estimate_url` | string \| omitted | Same role as `url` if Spruce uses this alias        |
+| `estimates`    | array             | One object per sizing / scenario returned by Spruce |
 
+**Each `estimate.estimates[]` row — fields observed from Spruce**
 
-| Field | Type | Description |
-| ----- | ---- | ----------- |
-| `annual_heat_energy_demand_w` | number | Annual heat energy demand (watt-hours basis per Spruce model) |
-| `average_heat_pump_efficiency` | number | Average heat pump efficiency (ratio) |
-| `co2_saved_kg` | number | CO₂ savings vs baseline (kg) |
-| `commutes_saved_petrol_car` | number | Commute-equivalent savings metric |
-| `efficiency_baseline` | number | Baseline system efficiency (e.g. gas boiler) |
-| `electricity_tariff_baseline_annual_bill_gbp` | number | Baseline annual electricity bill (£GBP integer in observed payloads) |
-| `electricity_tariff_baseline_pence_per_kwh` | number | Baseline tariff (p/kWh) |
-| `electricity_tariff_baseline_price_cap_pence_per_kwh` | number | Baseline cap reference (p/kWh) |
-| `electricity_tariff_heat_pump_annual_bill_gbp` | number | Heat-pump scenario annual bill (£GBP) |
-| `electricity_tariff_heat_pump_annual_bill_price_cap_gbp` | number | Heat-pump bill under price-cap assumption (£GBP) |
-| `electricity_tariff_heat_pump_based_on` | string | Human-readable tariff / methodology note |
-| `electricity_tariff_heat_pump_pence_per_kwh` | number | Effective heat-pump tariff (p/kWh) |
-| `flights_to_spain_saved` | number | Flights-equivalent savings metric |
-| `flow_temp_c` | number | Design flow temperature (°C) |
-| `fuel_name_baseline` | string | Baseline fuel label (e.g. `"Mains Gas"`) |
-| `heat_pumps` | array | Selected heat pump line items; each element may include e.g. `calculated_capacity_w`, `calculated_scop`, `inventory_heat_pump_name` |
-| `hot_water_cylinders` | array | Cylinder line items; each element may include e.g. `capacity_l`, `inventory_hot_water_cylinder_name` |
-| `internal_temp_c` | number | Internal design temperature (°C) |
-| `outdoor_temp_c` | number | Outdoor design temperature (°C) |
-| `overall_scop` | number | Overall SCOP |
-| `price_cap_description` | string | Label for the price-cap period used |
-| `total_heat_loss_w` | number | Total heat loss (W) |
-| `total_price_excluding_grants_pence` | number | Installation total (**pence**) before grants |
-| `total_price_including_grants_pence` | number | Total (**pence**) after grants—can be negative if grants exceed cost |
-| `customer_discount_rate_percent` | number | **Added by this API:** contractual discount decimal (e.g. `0.15` = 15%) |
-| `discounted_total_price_including_grants_pence` | number \| null | **Added by this API:** `total_price_including_grants_pence * (1 - customer_discount_rate_percent)`, rounded; `null` if source price missing |
+Numeric types in the API are often integers or doubles; clients may receive either. **`customer_discount_rate_percent`** and **`discounted_total_price_including_grants_pence`** are **added by this backend** on each row (see [Partner Estimate API — customer discount](./partnerEstimateSubmit.md#51-customer-discount-ecs-heat-pump-pricing)).
+
+| Field                                                    | Type           | Description                                                                                                                                 |
+| -------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `annual_heat_energy_demand_w`                            | number         | Annual heat energy demand (watt-hours basis per Spruce model)                                                                               |
+| `average_heat_pump_efficiency`                           | number         | Average heat pump efficiency (ratio)                                                                                                        |
+| `co2_saved_kg`                                           | number         | CO₂ savings vs baseline (kg)                                                                                                                |
+| `commutes_saved_petrol_car`                              | number         | Commute-equivalent savings metric                                                                                                           |
+| `efficiency_baseline`                                    | number         | Baseline system efficiency (e.g. gas boiler)                                                                                                |
+| `electricity_tariff_baseline_annual_bill_gbp`            | number         | Baseline annual electricity bill (£GBP integer in observed payloads)                                                                        |
+| `electricity_tariff_baseline_pence_per_kwh`              | number         | Baseline tariff (p/kWh)                                                                                                                     |
+| `electricity_tariff_baseline_price_cap_pence_per_kwh`    | number         | Baseline cap reference (p/kWh)                                                                                                              |
+| `electricity_tariff_heat_pump_annual_bill_gbp`           | number         | Heat-pump scenario annual bill (£GBP)                                                                                                       |
+| `electricity_tariff_heat_pump_annual_bill_price_cap_gbp` | number         | Heat-pump bill under price-cap assumption (£GBP)                                                                                            |
+| `electricity_tariff_heat_pump_based_on`                  | string         | Human-readable tariff / methodology note                                                                                                    |
+| `electricity_tariff_heat_pump_pence_per_kwh`             | number         | Effective heat-pump tariff (p/kWh)                                                                                                          |
+| `flights_to_spain_saved`                                 | number         | Flights-equivalent savings metric                                                                                                           |
+| `flow_temp_c`                                            | number         | Design flow temperature (°C)                                                                                                                |
+| `fuel_name_baseline`                                     | string         | Baseline fuel label (e.g. `"Mains Gas"`)                                                                                                    |
+| `heat_pumps`                                             | array          | Selected heat pump line items; each element may include e.g. `calculated_capacity_w`, `calculated_scop`, `inventory_heat_pump_name`         |
+| `hot_water_cylinders`                                    | array          | Cylinder line items; each element may include e.g. `capacity_l`, `inventory_hot_water_cylinder_name`                                        |
+| `internal_temp_c`                                        | number         | Internal design temperature (°C)                                                                                                            |
+| `outdoor_temp_c`                                         | number         | Outdoor design temperature (°C)                                                                                                             |
+| `overall_scop`                                           | number         | Overall SCOP                                                                                                                                |
+| `price_cap_description`                                  | string         | Label for the price-cap period used                                                                                                         |
+| `total_heat_loss_w`                                      | number         | Total heat loss (W)                                                                                                                         |
+| `total_price_excluding_grants_pence`                     | number         | Installation total (**pence**) before grants                                                                                                |
+| `total_price_including_grants_pence`                     | number         | Total (**pence**) after grants—can be negative if grants exceed cost                                                                        |
+| `customer_discount_rate_percent`                         | number         | **Added by this API:** contractual discount decimal (e.g. `0.15` = 15%)                                                                     |
+| `discounted_total_price_including_grants_pence`          | number \| null | **Added by this API:** `total_price_including_grants_pence * (1 - customer_discount_rate_percent)`, rounded; `null` if source price missing |
 
 Spruce may also return **camelCase** equivalents for some quantities (e.g. `totalHeatLossW`, `totalPriceIncludingGrantsPence`); this backend reads those in **`estimateSummary`** when building the summary from the first row.
 
 **`estimateSummary` (when `estimate` succeeds)**
 
-| Field | Type | Description |
-| ----- | ---- | ----------- |
-| `url` | string \| null | Report URL (from `estimate.url` or `estimate.estimate_url`) |
-| `estimateCount` | number | `estimate.estimates.length` |
-| `totalHeatLossW` | number \| null | From first row: `total_heat_loss_w` or `totalHeatLossW` |
-| `totalPriceIncludingGrantsPence` | number \| null | From first row: `total_price_including_grants_pence` or `totalPriceIncludingGrantsPence` |
-| `customer_discount_rate_percent` | number | Discount rate applied (from first row or partner default) |
-| `discounted_total_price_including_grants_pence` | number \| null | From first row after enrichment |
+| Field                                           | Type           | Description                                                                              |
+| ----------------------------------------------- | -------------- | ---------------------------------------------------------------------------------------- |
+| `url`                                           | string \| null | Report URL (from `estimate.url` or `estimate.estimate_url`)                              |
+| `estimateCount`                                 | number         | `estimate.estimates.length`                                                              |
+| `totalHeatLossW`                                | number \| null | From first row: `total_heat_loss_w` or `totalHeatLossW`                                  |
+| `totalPriceIncludingGrantsPence`                | number \| null | From first row: `total_price_including_grants_pence` or `totalPriceIncludingGrantsPence` |
+| `customer_discount_rate_percent`                | number         | Discount rate applied (from first row or partner default)                                |
+| `discounted_total_price_including_grants_pence` | number \| null | From first row after enrichment                                                          |
 
 When the estimate call fails, **`estimate`** and **`estimateSummary`** are both **`null`**; the HTTP response is still **200** if the lead was created and the response is otherwise successful.
 
-### 6.3 Error (HTTP 4xx, 5xx)
+### 6.3 `lead` object fields (stored Firestore snapshot)
+
+`lead` includes all currently stored lead fields. Common top-level keys are:
+
+- `id`, `partnerId`, `widgetVersion`, `status`, `salesStatus`, `submissionChannel`
+- `property` (normalized property fields)
+- `customer` (name/email/phone)
+- `epcData`, `hasEPC`
+- `qualifyingQuestions`
+- `ecs`
+- `callbackRequest`
+- `spruce`
+- `hubspot`
+- `estimate`
+- `metadata`
+- `createdAt`, `updatedAt`
+
+Exact nested keys can evolve as integrations add fields (for example under `spruce`, `hubspot`, or `estimate`).
+
+### 6.4 Error (HTTP 4xx, 5xx)
 
 ```json
 {
@@ -537,7 +744,7 @@ When the estimate call fails, **`estimate`** and **`estimateSummary`** are both 
 }
 ```
 
-### 6.4 HTTP Status Codes
+### 6.5 HTTP Status Codes
 
 ```json
 {
@@ -574,8 +781,10 @@ Limits are configured per partner or per API key. When exceeded, the API returns
 3. Load partner config; verify partner exists and is enabled
 4. Check rate limits
 5. Validate required customer fields
-6. Create lead document in Firestore
-7. Submit to Spruce Create Job API
-8. Calculate estimate via Spruce Estimates API
-9. Update lead with Spruce and estimate results
-10. Return response
+6. Normalize optional `callbackRequest` (single-call create job + callback flow)
+7. Normalize optional ECS metadata (`ecs` / root aliases)
+8. Create lead document in Firestore
+9. Submit to Spruce Create Job API
+10. Calculate estimate via Spruce Estimates API
+11. Update lead with Spruce and estimate results
+12. Return response
