@@ -51,12 +51,12 @@ Behavior:
 
 ## 3. Endpoint catalog
 
-| Endpoint | Method(s) | Purpose | Details |
-| --- | --- | --- | --- |
-| `/partnerLeadSubmit` | `POST` | Full lead flow: create lead, request estimate, submit to Spruce, downstream CRM sync | [partnerLeadSubmit.md](https://gist.github.com/tigranelyazyan/6f13bb06ca76019280e01d5edb419c2b) |
-| `onProjectJobStatusWebhook` | Firestore trigger | OMS -> Partner webhook | Sends `job.status_changed` updates to partner `webhookUrl` |
-| `onLeadHubSpotPush` | Firestore trigger | OMS -> HubSpot sync | [HubSpot sync docs](https://gist.github.com/tigranelyazyan/0bfad64d3305fe90824d352e029bd5b0) |
-| `hubspotWebhook` | HTTPS endpoint | HubSpot -> OMS sync | [HubSpot sync docs](https://gist.github.com/tigranelyazyan/0bfad64d3305fe90824d352e029bd5b0) |
+| Endpoint                    | Method(s)         | Purpose                                                                              | Details                                                                                                    |
+| --------------------------- | ----------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `/partnerLeadSubmit`        | `POST`            | Full lead flow: create lead, request estimate, submit to Spruce, downstream CRM sync | [partnerLeadSubmit.md](https://github.com/Installio/partner-API-docs/blob/main/Partner-Lead-Submit-API.md) |
+| `onProjectJobStatusWebhook` | Firestore trigger | OMS -> Partner webhook                                                               | Sends `job.status_changed` updates to partner `webhookUrl`                                                 |
+| `onLeadHubSpotPush`         | Firestore trigger | OMS -> HubSpot sync                                                                  | [HubSpot sync docs]https://github.com/Installio/partner-API-docs/blob/main/Hubspot-integration.md)         |
+| `hubspotWebhook`            | HTTPS endpoint    | HubSpot -> OMS sync                                                                  | [HubSpot sync docs](https://github.com/Installio/partner-API-docs/blob/main/Hubspot-integration.md)        |
 
 ---
 
@@ -106,16 +106,16 @@ Suggested partner-facing note:
 > We send `POST` requests with JSON payload whenever OMS detects a job status change.  
 > Your endpoint should return HTTP `2xx` quickly (within 8 seconds timeout window).
 
-![alt text here](https://gist.github.com/user-attachments/assets/ac87272c-0ded-4965-933e-1e667b49b8de)
+![Image](https://gist.github.com/user-attachments/assets/ac87272c-0ded-4965-933e-1e667b49b8de)
 
 ## 4.4 OMS <-> HubSpot sync
 
 These flows are part of the integration architecture:
 
-| Function | Direction | Trigger type | Purpose |
-| --- | --- | --- | --- |
-| `onLeadHubSpotPush` | OMS -> HubSpot | Firestore trigger | Create deal/contact and keep HubSpot in sync |
-| `hubspotWebhook` | HubSpot -> OMS | HTTPS endpoint | Apply HubSpot deal field updates to Firestore |
+| Function            | Direction      | Trigger type      | Purpose                                       |
+| ------------------- | -------------- | ----------------- | --------------------------------------------- |
+| `onLeadHubSpotPush` | OMS -> HubSpot | Firestore trigger | Create deal/contact and keep HubSpot in sync  |
+| `hubspotWebhook`    | HubSpot -> OMS | HTTPS endpoint    | Apply HubSpot deal field updates to Firestore |
 
 Reference: [HubSpot integration flow](https://gist.github.com/tigranelyazyan/0bfad64d3305fe90824d352e029bd5b0)
 
@@ -180,15 +180,15 @@ Common response structure:
 
 Typical status codes:
 
-| HTTP | Meaning |
-| --- | --- |
+| HTTP  | Meaning                                |
+| ----- | -------------------------------------- |
 | `400` | Invalid JSON or invalid request fields |
-| `401` | Missing/invalid/disabled API key |
-| `403` | Partner mismatch or disabled partner |
-| `404` | Partner or resource not found |
-| `405` | Method not allowed |
-| `429` | Rate limit exceeded |
-| `500` | Internal server error |
+| `401` | Missing/invalid/disabled API key       |
+| `403` | Partner mismatch or disabled partner   |
+| `404` | Partner or resource not found          |
+| `405` | Method not allowed                     |
+| `429` | Rate limit exceeded                    |
+| `500` | Internal server error                  |
 
 Integration guidance:
 
