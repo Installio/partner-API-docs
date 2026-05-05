@@ -4,6 +4,8 @@
 **Endpoint:** `partnerLeadSubmit`  
 **Purpose:** Accept lead submissions from partner systems via API key authentication.
 
+**Also see:** [Partner API overview](./PARTNER_API.md) (environments, auth, rate limits, errors, endpoint choice).
+
 ---
 
 ## 1. Overview
@@ -112,7 +114,8 @@ These fields are mandatory. Validation fails if missing or invalid.
 {
   "hasEPC": "yes | no",
   "epcData": {
-    "lmkKey": "string",
+    "epcCertificateNumber": "string (preferred, RRN format 0000-0000-0000-0000-0000)",
+    "certificateNumber": "string (alias of epcCertificateNumber)",
     "postcode": "string",
     "address": "string",
     "propertyType": "string",
@@ -125,6 +128,11 @@ These fields are mandatory. Validation fails if missing or invalid.
   }
 }
 ```
+
+Identifier behavior:
+
+- Preferred: send `epcData.epcCertificateNumber` (or `certificateNumber`) using the 5x4 dashed RRN from the new MHCLG service.
+- Both Spruce create-job and estimate requests forward `epc_certificate_number` when available.
 
 ### 3.5 Optional Qualifying / Other Fields
 
@@ -404,7 +412,7 @@ Default: `sqm`.
   "projectType": "heat_pump",
   "hasEPC": "yes",
   "epcData": {
-    "lmkKey": "123456789012",
+    "epcCertificateNumber": "1700-1141-0422-4422-3253",
     "postcode": "SW1A 1AA",
     "address": "123 High Street, London",
     "propertyType": "house",
