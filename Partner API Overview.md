@@ -54,7 +54,7 @@ Behavior:
 | Endpoint                    | Method(s)         | Purpose                                                                              | Details                                                                                         |
 | --------------------------- | ----------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
 | `/partnerLeadSubmit`        | `POST`            | Full lead flow: create lead, request estimate, submit to Spruce, downstream CRM sync | [partnerLeadSubmit.md](https://gist.github.com/tigranelyazyan/6f13bb06ca76019280e01d5edb419c2b) |
-| `/partnerLeadUpdate`        | `PATCH`           | Update customer name, email, phone on an existing lead; sync HubSpot when applicable | [partnerLeadUpdate.md](./partnerLeadUpdate.md)                                                  |
+| `/updateLeadCustomer`       | `PATCH`           | Update customer name, email, phone on an existing lead; sync HubSpot when applicable | [updateLeadCustomer.md](./updateLeadCustomer.md)                                                |
 | `/partnerEstimateSubmit`    | `POST`            | Heat pump estimate only (no Spruce job / HubSpot create)                             | [partnerEstimateSubmit.md](./partnerEstimateSubmit.md)                                          |
 | `onProjectJobStatusWebhook` | Firestore trigger | OMS -> Partner webhook                                                               | Sends `job.status_changed` updates to partner `webhookUrl`                                      |
 | `onLeadHubSpotPush`         | Firestore trigger | OMS -> HubSpot sync                                                                  | [HubSpot sync docs](https://gist.github.com/tigranelyazyan/0bfad64d3305fe90824d352e029bd5b0)    |
@@ -95,11 +95,11 @@ Delivery to partner `webhookUrl`:
 
 ## 4.2.1 Lead contact update endpoint
 
-- Use `partnerLeadUpdate` when you already have a `leadId` and need to change **customer** name, email, or phone.
+- Use `updateLeadCustomer` when you already have a `leadId` and need to change **customer** name, email, or phone.
 - **Method:** `PATCH` only.
 - Requires the same partner API key; the lead must belong to the authenticated partner.
 - Updates Firestore `customer` on the lead; if the lead was previously pushed to HubSpot (`hubspot.status === "submitted"`), HubSpot contact and deal are updated in the same request.
-- Full spec: [partnerLeadUpdate.md](./partnerLeadUpdate.md)
+- Full spec: [updateLeadCustomer.md](./updateLeadCustomer.md)
 
 ## 4.3 Web app: set partner `webhookUrl`
 

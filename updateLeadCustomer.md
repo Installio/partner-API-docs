@@ -1,7 +1,7 @@
-# Partner Lead Update API
+# Update Lead Customer API
 
 **Version:** 1.0  
-**Function:** `partnerLeadUpdate`  
+**Function:** `updateLeadCustomer`  
 **Purpose:** Update customer contact details (name, email, phone) on an existing lead created via the Partner API or widget. Optionally syncs those changes to HubSpot when the lead was previously pushed to CRM.
 
 **Related:** Uses the **same partner API keys** as [Partner Lead Submit](./partnerLeadSubmit.md). The `leadId` must come from a prior `partnerLeadSubmit` or `partnerEstimateSubmit` response (or another flow that created a document in the `leads` collection for your partner).
@@ -12,13 +12,13 @@
 
 ## 1. When to use this endpoint
 
-| Scenario | Endpoint |
-| -------- | -------- |
-| Create a new lead + Spruce job + HubSpot | `partnerLeadSubmit` |
-| Create a lead + estimate only (no Spruce job) | `partnerEstimateSubmit` |
-| **Correct customer name / email / phone on an existing lead** | **`partnerLeadUpdate`** |
+| Scenario                                                      | Endpoint                 |
+| ------------------------------------------------------------- | ------------------------ |
+| Create a new lead + Spruce job + HubSpot                      | `partnerLeadSubmit`      |
+| Create a lead + estimate only (no Spruce job)                 | `partnerEstimateSubmit`  |
+| **Correct customer name / email / phone on an existing lead** | **`updateLeadCustomer`** |
 
-Use **`partnerLeadUpdate`** after you have a `leadId` and the customer’s contact details have changed (typo fix, new email, updated phone, legal name change, etc.).
+Use **`updateLeadCustomer`** after you have a `leadId` and the customer’s contact details have changed (typo fix, new email, updated phone, legal name change, etc.).
 
 This endpoint does **not** change property, EPC, estimate, or Spruce job data—only the `customer` object on the lead document.
 
@@ -32,19 +32,19 @@ This endpoint does **not** change property, EPC, estimate, or Spruce job data—
 **Development (example):**
 
 ```
-https://europe-west2-co-pilot-dev-f762b.cloudfunctions.net/partnerLeadUpdate
+https://europe-west2-co-pilot-dev-f762b.cloudfunctions.net/updateLeadCustomer
 ```
 
 **Production (example):**
 
 ```
-https://europe-west2-co-pilot-b7f8e.cloudfunctions.net/partnerLeadUpdate
+https://europe-west2-co-pilot-b7f8e.cloudfunctions.net/updateLeadCustomer
 ```
 
 **Local emulator (example):**
 
 ```
-http://127.0.0.1:5001/co-pilot-dev-f762b/europe-west2/partnerLeadUpdate
+http://127.0.0.1:5001/co-pilot-dev-f762b/europe-west2/updateLeadCustomer
 ```
 
 Confirm the exact URL with your platform administrator before go-live.
@@ -69,12 +69,12 @@ Authorization: api-key <partner-api-key>
 Authorization: <partner-api-key>
 ```
 
-| Result | HTTP |
-| ------ | ---- |
-| Missing / invalid key | **401** |
-| Disabled key | **401** |
+| Result                                                    | HTTP    |
+| --------------------------------------------------------- | ------- |
+| Missing / invalid key                                     | **401** |
+| Disabled key                                              | **401** |
 | Optional `partnerId` in body does not match key’s partner | **403** |
-| Partner disabled in config | **403** |
+| Partner disabled in config                                | **403** |
 
 ---
 
@@ -82,8 +82,8 @@ Authorization: <partner-api-key>
 
 ### 4.1 Required fields
 
-| Field | Type | Description |
-| ----- | ---- | ----------- |
+| Field    | Type   | Description                                                                                                        |
+| -------- | ------ | ------------------------------------------------------------------------------------------------------------------ |
 | `leadId` | string | Firestore document ID of the lead (non-empty, trimmed). Always at the **root** of the JSON body—not inside `data`. |
 
 ### 4.2 Customer fields (partial update)
@@ -92,13 +92,13 @@ Send **at least one** customer field per request. Omitted fields are left unchan
 
 **Widget-style names (root or under `data`):**
 
-| Field | Type | Validation |
-| ----- | ---- | ---------- |
-| `customerEmail` | string | Valid email (`^[^\s@]+@[^\s@]+\.[^\s@]+$`); cannot be empty if sent |
-| `customerPhone` | string | Non-empty if sent |
-| `customerFirstName` | string | Non-empty if sent |
-| `customerLastName` | string | Non-empty if sent |
-| `customerName` | string | Full name; split into first token = first name, remainder = last name (same as widget). **Overrides** `customerFirstName` / `customerLastName` when sent in the same request |
+| Field               | Type   | Validation                                                                                                                                                                   |
+| ------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `customerEmail`     | string | Valid email (`^[^\s@]+@[^\s@]+\.[^\s@]+$`); cannot be empty if sent                                                                                                          |
+| `customerPhone`     | string | Non-empty if sent                                                                                                                                                            |
+| `customerFirstName` | string | Non-empty if sent                                                                                                                                                            |
+| `customerLastName`  | string | Non-empty if sent                                                                                                                                                            |
+| `customerName`      | string | Full name; split into first token = first name, remainder = last name (same as widget). **Overrides** `customerFirstName` / `customerLastName` when sent in the same request |
 
 **Nested object (root or under `data`):**
 
@@ -152,17 +152,17 @@ The service merges your patch into the lead’s `customer` object:
 
 If the lead was previously synced to HubSpot via the full lead pipeline, this endpoint **also** updates HubSpot in the same request:
 
-| Condition | HubSpot behaviour |
-| --------- | ----------------- |
-| `hubspot.status === "submitted"` and `hubspot.dealId` present | PATCH HubSpot **contact** (email, firstname, lastname, phone) and **deal** (structured deal properties derived from the lead) |
-| Lead not yet in HubSpot (e.g. estimate-only submit, or Spruce/HubSpot still pending) | Firestore updated only; response includes `hubspot.skipped: true`, `reason: "lead_not_in_hubspot"` |
-| `HUBSPOT_API_KEY` not configured on the function | Firestore updated; HubSpot skipped with `reason: "hubspot_api_key_missing"` |
+| Condition                                                                            | HubSpot behaviour                                                                                                             |
+| ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `hubspot.status === "submitted"` and `hubspot.dealId` present                        | PATCH HubSpot **contact** (email, firstname, lastname, phone) and **deal** (structured deal properties derived from the lead) |
+| Lead not yet in HubSpot (e.g. estimate-only submit, or Spruce/HubSpot still pending) | Firestore updated only; response includes `hubspot.skipped: true`, `reason: "lead_not_in_hubspot"`                            |
+| `HUBSPOT_API_KEY` not configured on the function                                     | Firestore updated; HubSpot skipped with `reason: "hubspot_api_key_missing"`                                                   |
 
 **Typical HubSpot path for partner leads:**
 
 1. `partnerLeadSubmit` creates the lead and submits to Spruce.
 2. Firestore trigger `onLeadHubSpotPush` creates contact + deal when Spruce completes.
-3. Later, `partnerLeadUpdate` PATCHes Firestore and HubSpot when contact details change.
+3. Later, `updateLeadCustomer` PATCHes Firestore and HubSpot when contact details change.
 
 `partnerEstimateSubmit` alone does **not** create HubSpot records; updates to those leads will return `lead_not_in_hubspot` until a full submit/sync has run.
 
@@ -202,7 +202,12 @@ The response includes a `hubspot` object so you can see whether CRM sync ran (se
 {
   "success": true,
   "leadId": "abc123xyz",
-  "customer": { "firstName": "Jane", "lastName": "Smith", "email": "jane@example.com", "phone": "07123456789" },
+  "customer": {
+    "firstName": "Jane",
+    "lastName": "Smith",
+    "email": "jane@example.com",
+    "phone": "07123456789"
+  },
   "hubspot": {
     "synced": false,
     "skipped": true,
@@ -234,19 +239,19 @@ Optional `warnings` array (e.g. rate limiter degraded): `"warnings": ["rate_limi
 
 ### 6.2 Error responses
 
-| HTTP | `error` (typical) | When |
-| ---- | ----------------- | ---- |
-| **400** | `Invalid or missing leadId` | No `leadId` |
-| **400** | `Invalid email address` / `customerEmail cannot be empty` | Bad or empty email |
-| **400** | `No customer fields to update` | No patch fields sent |
-| **401** | `Missing Authorization header` / `Invalid API key` | Auth failure |
+| HTTP    | `error` (typical)                                           | When                            |
+| ------- | ----------------------------------------------------------- | ------------------------------- |
+| **400** | `Invalid or missing leadId`                                 | No `leadId`                     |
+| **400** | `Invalid email address` / `customerEmail cannot be empty`   | Bad or empty email              |
+| **400** | `No customer fields to update`                              | No patch fields sent            |
+| **401** | `Missing Authorization header` / `Invalid API key`          | Auth failure                    |
 | **403** | `Partner mismatch` / `Lead does not belong to this partner` | Wrong partner or lead ownership |
-| **403** | `Partner is disabled` | Partner turned off |
-| **404** | `Lead not found` | Unknown `leadId` |
-| **404** | `Partner not found` | Invalid partner config |
-| **405** | `Method not allowed` | Not `PATCH` |
-| **429** | `Rate limit exceeded (hour)` / `(day)` | Partner quota |
-| **500** | `Internal server error` | Unexpected failure |
+| **403** | `Partner is disabled`                                       | Partner turned off              |
+| **404** | `Lead not found`                                            | Unknown `leadId`                |
+| **404** | `Partner not found`                                         | Invalid partner config          |
+| **405** | `Method not allowed`                                        | Not `PATCH`                     |
+| **429** | `Rate limit exceeded (hour)` / `(day)`                      | Partner quota                   |
+| **500** | `Internal server error`                                     | Unexpected failure              |
 
 Example **404**:
 
@@ -288,7 +293,7 @@ The same **per-partner** limits apply as for Partner Lead Submit and Partner Est
 
 ```bash
 curl -sS -X PATCH \
-  'https://europe-west2-co-pilot-dev-f762b.cloudfunctions.net/partnerLeadUpdate' \
+  'https://europe-west2-co-pilot-dev-f762b.cloudfunctions.net/updateLeadCustomer' \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer YOUR_PARTNER_API_KEY' \
   -d '{
@@ -303,7 +308,7 @@ curl -sS -X PATCH \
 
 ```bash
 curl -sS -X PATCH \
-  'https://europe-west2-co-pilot-dev-f762b.cloudfunctions.net/partnerLeadUpdate' \
+  'https://europe-west2-co-pilot-dev-f762b.cloudfunctions.net/updateLeadCustomer' \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer YOUR_PARTNER_API_KEY' \
   -d '{
@@ -316,7 +321,7 @@ curl -sS -X PATCH \
 
 ```bash
 curl -sS -X PATCH \
-  'http://127.0.0.1:5001/co-pilot-dev-f762b/europe-west2/partnerLeadUpdate' \
+  'http://127.0.0.1:5001/co-pilot-dev-f762b/europe-west2/updateLeadCustomer' \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer YOUR_PARTNER_API_KEY' \
   -d '{
@@ -332,7 +337,7 @@ curl -sS -X PATCH \
 
 ```bash
 curl -sS -X PATCH \
-  'https://europe-west2-co-pilot-dev-f762b.cloudfunctions.net/partnerLeadUpdate' \
+  'https://europe-west2-co-pilot-dev-f762b.cloudfunctions.net/updateLeadCustomer' \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer YOUR_PARTNER_API_KEY' \
   -d '{
