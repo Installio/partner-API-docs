@@ -4,7 +4,7 @@
 **Endpoint:** `partnerLeadSubmit`  
 **Purpose:** Accept lead submissions from partner systems via API key authentication.
 
-**Also see:** [Partner API overview](./PARTNER_API.md) (environments, auth, rate limits, errors, endpoint choice). To update customer contact details on an existing lead, use [Update Lead Customer](./updateLeadCustomer.md).
+**Also see:** [Partner API overview](./Partner%20API%20Overview.md) (environments, auth, rate limits, errors, endpoint choice). To update customer contact details on an existing lead, use [Update Lead Customer](./updateLeadCustomer.md).
 
 ---
 
@@ -678,7 +678,9 @@ The **`estimate`** object below matches a **real** Spruce `POST /v1/estimates` r
 
 **Each `estimate.estimates[]` row — fields observed from Spruce**
 
-Numeric types in the API are often integers or doubles; clients may receive either. **`customer_discount_rate_percent`** and **`discounted_total_price_including_grants_pence`** are **added by this backend** on each row (see [Partner Estimate API — customer discount](./partnerEstimateSubmit.md#51-customer-discount-ecs-heat-pump-pricing)).
+Numeric types in the API are often integers or doubles; clients may receive either. **`customer_discount_rate_percent`** and **`discounted_total_price_including_grants_pence`** are **added by this backend** on each row (see Partner Estimate API — customer discount, section 5.1).
+
+<!-- TODO(docs): The link `./partnerEstimateSubmit.md#51-customer-discount-ecs-heat-pump-pricing` referenced above is broken — no such file exists in this repo. Restore the link once the partnerEstimateSubmit reference document is added. -->
 
 | Field                                                    | Type           | Description                                                                                                                                 |
 | -------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |

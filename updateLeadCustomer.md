@@ -4,9 +4,9 @@
 **Function:** `updateLeadCustomer`  
 **Purpose:** Update customer contact details (name, email, phone) on an existing lead created via the Partner API or widget. Optionally syncs those changes to HubSpot when the lead was previously pushed to CRM.
 
-**Related:** Uses the **same partner API keys** as [Partner Lead Submit](./partnerLeadSubmit.md). The `leadId` must come from a prior `partnerLeadSubmit` or `partnerEstimateSubmit` response (or another flow that created a document in the `leads` collection for your partner).
+**Related:** Uses the **same partner API keys** as [Partner Lead Submit](./Partner-Lead-Submit-API.md). The `leadId` must come from a prior `partnerLeadSubmit` or `partnerEstimateSubmit` response (or another flow that created a document in the `leads` collection for your partner).
 
-**Also see:** [Partner API overview](./PARTNER_API.md) (environments, auth, rate limits, errors).
+**Also see:** [Partner API overview](./Partner%20API%20Overview.md) (environments, auth, rate limits, errors).
 
 ---
 
@@ -367,4 +367,4 @@ Replace `YOUR_PARTNER_API_KEY`, `YOUR_LEAD_ID`, and base URLs with your environm
 
 ## 11. Support
 
-For API keys, partner enablement, URL confirmation, or quota changes, contact your **Installio / Breengy platform administrator**. For creating leads and full payload semantics, see [Partner Lead Submit](./partnerLeadSubmit.md) and [Partner API overview](./PARTNER_API.md).
+For API keys, partner enablement, URL confirmation, or quota changes, contact your **Installio / Breengy platform administrator**. For creating leads and full payload semantics, see [Partner Lead Submit](./Partner-Lead-Submit-API.md) and [Partner API overview](./Partner%20API%20Overview.md).
