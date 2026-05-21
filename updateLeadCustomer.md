@@ -2,7 +2,7 @@
 
 **Version:** 1.0  
 **Function:** `updateLeadCustomer`  
-**Purpose:** Update customer contact details (name, email, phone) on an existing lead created via the Partner API or widget. Optionally syncs those changes to HubSpot when the lead was previously pushed to CRM.
+**Purpose:** Update customer contact details (name, email, phone) and/or callback preferences (`callbackRequest`) on an existing lead created via the Partner API or widget. Optionally syncs those changes to HubSpot when the lead was previously pushed to CRM.
 
 **Related:** Uses the **same partner API keys** as [Partner Lead Submit](./partnerLeadSubmit.md). The `leadId` must come from a prior `partnerLeadSubmit` or `partnerEstimateSubmit` response (or another flow that created a document in the `leads` collection for your partner).
 
@@ -12,15 +12,16 @@
 
 ## 1. When to use this endpoint
 
-| Scenario                                                      | Endpoint                 |
-| ------------------------------------------------------------- | ------------------------ |
-| Create a new lead + Spruce job + HubSpot                      | `partnerLeadSubmit`      |
-| Create a lead + estimate only (no Spruce job)                 | `partnerEstimateSubmit`  |
-| **Correct customer name / email / phone on an existing lead** | **`updateLeadCustomer`** |
+| Scenario                                                      | Endpoint                                 |
+| ------------------------------------------------------------- | ---------------------------------------- |
+| Create a new lead + Spruce job + HubSpot                      | `partnerLeadSubmit`                      |
+| Create a lead + estimate only (no Spruce job)                 | `partnerEstimateSubmit`                  |
+| **Correct customer name / email / phone on an existing lead** | **`updateLeadCustomer`**                 |
+| **Update callback preferences on an existing lead**           | **`updateLeadCustomer`** (same endpoint) |
 
-Use **`updateLeadCustomer`** after you have a `leadId` and the customer’s contact details have changed (typo fix, new email, updated phone, legal name change, etc.).
+Use **`updateLeadCustomer`** after you have a `leadId` and the customer’s contact details and/or callback preferences have changed.
 
-This endpoint does **not** change property, EPC, estimate, or Spruce job data—only the `customer` object on the lead document.
+This endpoint does **not** change property, EPC, estimate, or Spruce job data—only `customer` and/or `callbackRequest` on the lead document.
 
 ---
 
@@ -88,7 +89,7 @@ Authorization: <partner-api-key>
 
 ### 4.2 Customer fields (partial update)
 
-Send **at least one** customer field per request. Omitted fields are left unchanged on the lead.
+Send **at least one** customer field **or** callback payload per request (see §4.3). Omitted customer fields are left unchanged on the lead.
 
 **Widget-style names (root or under `data`):**
 
@@ -114,7 +115,25 @@ Send **at least one** customer field per request. Omitted fields are left unchan
 
 `customer.name` behaves like `customerName`.
 
-### 4.3 Payload layouts
+### 4.3 Callback fields (`callbackRequest`)
+
+Same shape and aliases as [Partner Lead Submit](./partnerLeadSubmit.md) §3.7. When provided, the whole `callbackRequest` object on the lead is **replaced** with the normalized value (including a fresh `submittedAt`).
+
+**Nested object (root or under `data`):**
+
+```json
+"callbackRequest": {
+  "questionsForCall": "Please call about heat pump sizing",
+  "preferredCallTimeSlots": ["9-12", "14-16"],
+  "preferredCallDays": ["monday", "wednesday"]
+}
+```
+
+Snake-case aliases (`callback_request`, `questions_for_call`, `preferred_call_days`, `preferred_call_time_slots`) are accepted. Flat callback fields at root or under `data` (without nesting) are also accepted.
+
+You may send **only** `callbackRequest`, **only** customer fields, or both in one `PATCH`.
+
+### 4.4 Payload layouts
 
 1. **Direct** — `leadId` and customer fields at the root.
 2. **Wrapped** — customer fields under `data`; `leadId` stays at root.
@@ -131,7 +150,7 @@ Send **at least one** customer field per request. Omitted fields are left unchan
 
 3. **Optional `partnerId`** at root — if present, must match the partner attached to the API key.
 
-### 4.4 What is stored
+### 4.5 What is stored
 
 The service merges your patch into the lead’s `customer` object:
 
@@ -144,6 +163,17 @@ The service merges your patch into the lead’s `customer` object:
 }
 ```
 
+When `callbackRequest` is sent:
+
+```json
+{
+  "questionsForCall": "string",
+  "preferredCallTimeSlots": ["string"],
+  "preferredCallDays": ["string"],
+  "submittedAt": "ISO-8601 string"
+}
+```
+
 `updatedAt` is set on the lead document.
 
 ---
@@ -152,11 +182,11 @@ The service merges your patch into the lead’s `customer` object:
 
 If the lead was previously synced to HubSpot via the full lead pipeline, this endpoint **also** updates HubSpot in the same request:
 
-| Condition                                                                            | HubSpot behaviour                                                                                                             |
-| ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
-| `hubspot.status === "submitted"` and `hubspot.dealId` present                        | PATCH HubSpot **contact** (email, firstname, lastname, phone) and **deal** (structured deal properties derived from the lead) |
-| Lead not yet in HubSpot (e.g. estimate-only submit, or Spruce/HubSpot still pending) | Firestore updated only; response includes `hubspot.skipped: true`, `reason: "lead_not_in_hubspot"`                            |
-| `HUBSPOT_API_KEY` not configured on the function                                     | Firestore updated; HubSpot skipped with `reason: "hubspot_api_key_missing"`                                                   |
+| Condition                                                                            | HubSpot behaviour                                                                                                                                                                                                                    |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `hubspot.status === "submitted"` and `hubspot.dealId` present                        | PATCH HubSpot **contact** (email, firstname, lastname, phone) and **deal** (structured deal properties derived from the lead, including `preferred_days`, `preferred_times`, `callback_questions` when `callbackRequest` is present) |
+| Lead not yet in HubSpot (e.g. estimate-only submit, or Spruce/HubSpot still pending) | Firestore updated only; response includes `hubspot.skipped: true`, `reason: "lead_not_in_hubspot"`                                                                                                                                   |
+| `HUBSPOT_API_KEY` not configured on the function                                     | Firestore updated; HubSpot skipped with `reason: "hubspot_api_key_missing"`                                                                                                                                                          |
 
 **Typical HubSpot path for partner leads:**
 
@@ -183,6 +213,12 @@ The response includes a `hubspot` object so you can see whether CRM sync ran (se
     "lastName": "Smith",
     "email": "jane.smith@example.com",
     "phone": "07123456789"
+  },
+  "callbackRequest": {
+    "questionsForCall": "Please call after 5pm",
+    "preferredCallTimeSlots": ["9-12"],
+    "preferredCallDays": ["tuesday", "wednesday"],
+    "submittedAt": "2026-05-21T12:00:00.000Z"
   },
   "hubspot": {
     "synced": true,
@@ -239,19 +275,20 @@ Optional `warnings` array (e.g. rate limiter degraded): `"warnings": ["rate_limi
 
 ### 6.2 Error responses
 
-| HTTP    | `error` (typical)                                           | When                            |
-| ------- | ----------------------------------------------------------- | ------------------------------- |
-| **400** | `Invalid or missing leadId`                                 | No `leadId`                     |
-| **400** | `Invalid email address` / `customerEmail cannot be empty`   | Bad or empty email              |
-| **400** | `No customer fields to update`                              | No patch fields sent            |
-| **401** | `Missing Authorization header` / `Invalid API key`          | Auth failure                    |
-| **403** | `Partner mismatch` / `Lead does not belong to this partner` | Wrong partner or lead ownership |
-| **403** | `Partner is disabled`                                       | Partner turned off              |
-| **404** | `Lead not found`                                            | Unknown `leadId`                |
-| **404** | `Partner not found`                                         | Invalid partner config          |
-| **405** | `Method not allowed`                                        | Not `PATCH`                     |
-| **429** | `Rate limit exceeded (hour)` / `(day)`                      | Partner quota                   |
-| **500** | `Internal server error`                                     | Unexpected failure              |
+| HTTP    | `error` (typical)                                           | When                                                 |
+| ------- | ----------------------------------------------------------- | ---------------------------------------------------- |
+| **400** | `Invalid or missing leadId`                                 | No `leadId`                                          |
+| **400** | `Invalid email address` / `customerEmail cannot be empty`   | Bad or empty email                                   |
+| **400** | `Invalid callbackRequest`                                   | `callbackRequest` is not a JSON object when provided |
+| **400** | `No fields to update`                                       | No customer or callback fields sent                  |
+| **401** | `Missing Authorization header` / `Invalid API key`          | Auth failure                                         |
+| **403** | `Partner mismatch` / `Lead does not belong to this partner` | Wrong partner or lead ownership                      |
+| **403** | `Partner is disabled`                                       | Partner turned off                                   |
+| **404** | `Lead not found`                                            | Unknown `leadId`                                     |
+| **404** | `Partner not found`                                         | Invalid partner config                               |
+| **405** | `Method not allowed`                                        | Not `PATCH`                                          |
+| **429** | `Rate limit exceeded (hour)` / `(day)`                      | Partner quota                                        |
+| **500** | `Internal server error`                                     | Unexpected failure                                   |
 
 Example **404**:
 
@@ -268,8 +305,8 @@ Example **400**:
 ```json
 {
   "success": false,
-  "error": "No customer fields to update",
-  "message": "Provide at least one of: customerEmail, customerPhone, customerName, customerFirstName, customerLastName, or customer.{email,phone,firstName,lastName,name}"
+  "error": "No fields to update",
+  "message": "Provide at least one customer field and/or callbackRequest (or flat callback fields)"
 }
 ```
 
@@ -333,7 +370,42 @@ curl -sS -X PATCH \
   }'
 ```
 
-### 9.4 Nested `customer` object
+### 9.4 Callback preferences only
+
+```bash
+curl -sS -X PATCH \
+  'http://127.0.0.1:5001/co-pilot-dev-f762b/europe-west2/updateLeadCustomer' \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer YOUR_PARTNER_API_KEY' \
+  -d '{
+    "leadId": "YOUR_LEAD_ID",
+    "callbackRequest": {
+      "questionsForCall": "Please call about heat pump sizing",
+      "preferredCallTimeSlots": ["9-12", "14-16"],
+      "preferredCallDays": ["monday", "wednesday"]
+    }
+  }'
+```
+
+### 9.5 Customer + callback in one request
+
+```bash
+curl -sS -X PATCH \
+  'http://127.0.0.1:5001/co-pilot-dev-f762b/europe-west2/updateLeadCustomer' \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer YOUR_PARTNER_API_KEY' \
+  -d '{
+    "leadId": "YOUR_LEAD_ID",
+    "customerPhone": "07987654321",
+    "callbackRequest": {
+      "questionsForCall": "Ring after 3pm",
+      "preferredCallDays": ["tuesday"],
+      "preferredCallTimeSlots": ["14-16"]
+    }
+  }'
+```
+
+### 9.6 Nested `customer` object
 
 ```bash
 curl -sS -X PATCH \
