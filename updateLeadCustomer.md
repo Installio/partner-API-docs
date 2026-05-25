@@ -117,7 +117,7 @@ Send **at least one** customer field **or** callback payload per request (see §
 
 ### 4.3 Callback fields (`callbackRequest`)
 
-Same shape and aliases as [Partner Lead Submit](./partnerLeadSubmit.md) §3.7. When provided, the whole `callbackRequest` object on the lead is **replaced** with the normalized value (including a fresh `submittedAt`).
+Same shape and aliases as [Partner Lead Submit](./Partner-Lead-Submit-API.md) §3.7. When provided, the whole `callbackRequest` object on the lead is **replaced** with the normalized value (including a fresh `submittedAt`).
 
 **Nested object (root or under `data`):**
 
