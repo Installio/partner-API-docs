@@ -1,10 +1,10 @@
 # Technical Specification: Partner Lead Submit API
 
-**Version:** 1.1  
+**Version:** 1.2  
 **Endpoint:** `partnerLeadSubmit`  
 **Purpose:** Accept lead submissions from partner systems via API key authentication.
 
-**Also see:** [Partner API overview](./Partner%20API%20Overview.md) (environments, auth, rate limits, errors, endpoint choice). To update customer contact details on an existing lead, use [Update Lead Customer](./updateLeadCustomer.md).
+**Also see:** [Partner API overview](./PARTNER_API.md) (environments, auth, rate limits, errors, endpoint choice). To update customer contact details on an existing lead, use [Update Lead Customer](./updateLeadCustomer.md).
 
 ---
 
@@ -108,31 +108,148 @@ These fields are mandatory. Validation fails if missing or invalid.
 }
 ```
 
-### 3.4 Optional EPC Fields
+### 3.4 Energy Performance Certificate (`hasEPC`, `epcData`)
+
+When the property has a registered EPC, set `hasEPC` to `"yes"` and include an `epcData` object. When no certificate is available, set `hasEPC` to `"no"` and omit `epcData` or send `null`.
+
+| Field     | Type   | Required | Description                                    |
+| --------- | ------ | -------- | ---------------------------------------------- |
+| `hasEPC`  | string | No       | `"yes"` or `"no"` (see section 4.10).          |
+| `epcData` | object | No       | Certificate-derived property data (see below). |
+
+The `epcData` object is stored on the lead as submitted. It supplements root-level property fields (section 3.3) when those are absent and informs Spruce job creation and heat-loss estimates.
+
+#### 3.4.1 Recommended fields
+
+For reliable Spruce integration, include at least:
+
+| Field                  | Type   | Description                                                      |
+| ---------------------- | ------ | ---------------------------------------------------------------- |
+| `epcCertificateNumber` | string | EPC registry reference (RRN), format `0000-0000-0000-0000-0000`. |
+| `postcode`             | string | Postcode on the certificate.                                     |
+| `address`              | string | Full address as shown on the certificate.                        |
+
+Accepted aliases for the certificate reference: `certificateNumber`, `lmkKey`, `legacyLmkKey` (32-character legacy identifier).
+
+#### 3.4.2 Field reference
+
+All fields below are optional. Include every field your integration holds; omit keys you do not have.
+
+**Certificate and location**
+
+| Field                  | Type   | Description                                          |
+| ---------------------- | ------ | ---------------------------------------------------- |
+| `epcCertificateNumber` | string | Primary certificate reference (RRN).                 |
+| `certificateNumber`    | string | Alias of `epcCertificateNumber`.                     |
+| `lmkKey`               | string | Alias of `epcCertificateNumber` (legacy field name). |
+| `legacyLmkKey`         | string | Legacy 32-character certificate key, if applicable.  |
+| `address`              | string | Certificate address.                                 |
+| `postcode`             | string | Certificate postcode.                                |
+
+**Energy performance**
+
+| Field                       | Type             | Description                                |
+| --------------------------- | ---------------- | ------------------------------------------ |
+| `energyRating`              | string           | Current efficiency band (e.g. `"C"`).      |
+| `energyEfficiency`          | number \| string | Current SAP rating.                        |
+| `potentialEnergyRating`     | string           | Potential efficiency band.                 |
+| `potentialEnergyEfficiency` | number \| string | Potential SAP rating.                      |
+| `lodgementDate`             | string           | Certificate registration date.             |
+| `epcYear`                   | number \| string | Year of registration.                      |
+| `environmentImpactCurrent`  | number \| string | Environmental impact score.                |
+| `co2EmissionsCurrent`       | number \| string | Current CO₂ emissions (tonnes per year).   |
+| `co2EmissionsPotential`     | number \| string | Potential CO₂ emissions (tonnes per year). |
+
+**Property type and size**
+
+| Field                    | Type             | Description                                                                |
+| ------------------------ | ---------------- | -------------------------------------------------------------------------- |
+| `propertyType`           | string           | Normalized type: `house`, `flat`, or `bungalow` (see section 4.1).         |
+| `propertyTypeRaw`        | string           | Property type as printed on the certificate.                               |
+| `builtForm`              | string           | Normalized built form (e.g. `detached`, `semi_detached`; see section 4.2). |
+| `builtFormRaw`           | string           | Built form as printed on the certificate.                                  |
+| `floorArea`              | number \| string | Total floor area.                                                          |
+| `floorAreaUnit`          | string           | Unit for `floorArea` (e.g. `"square metres"`).                             |
+| `numberOfHabitableRooms` | number \| string | Count of habitable rooms.                                                  |
+
+**Building fabric and heating**
+
+| Field                     | Type   | Description                                           |
+| ------------------------- | ------ | ----------------------------------------------------- |
+| `wallType`                | string | Normalized wall type (see section 4.4).               |
+| `wallConstruction`        | string | Wall construction summary.                            |
+| `wallsDescription`        | string | Wall description from the certificate.                |
+| `windowType`              | string | Normalized glazing type (see section 4.7).            |
+| `windowsDescription`      | string | Window description from the certificate.              |
+| `glazedType`              | string | Glazing description from the certificate.             |
+| `loftInsulation`          | string | Loft insulation level.                                |
+| `roofInsulation`          | string | Roof insulation level (see section 4.8).              |
+| `roofDescription`         | string | Roof description from the certificate.                |
+| `fuelType`                | string | Normalized fuel type (see section 4.3).               |
+| `mainFuel`                | string | Main fuel description from the certificate.           |
+| `mainHeatDescription`     | string | Main heating system description from the certificate. |
+| `constructionAgeBand`     | string | Construction age band (e.g. `"1996-2002"`).           |
+| `constructionAgeBandCode` | string | Age-band code.                                        |
+| `floorDescription`        | string | Floor description from the certificate.               |
+| `floorLevel`              | string | Floor level (relevant for flats).                     |
+
+Numeric values may be sent as numbers or strings; the API coerces known numeric fields to numbers on storage.
+
+#### 3.4.3 Example payloads
+
+**Certificate reference only** (use when root-level property fields in section 3.3 are already complete):
 
 ```json
 {
-  "hasEPC": "yes | no",
+  "hasEPC": "yes",
   "epcData": {
-    "epcCertificateNumber": "string (preferred, RRN format 0000-0000-0000-0000-0000)",
-    "certificateNumber": "string (alias of epcCertificateNumber)",
-    "postcode": "string",
-    "address": "string",
-    "propertyType": "string",
-    "builtForm": "string",
-    "floorArea": "number",
-    "wallConstruction": "string",
-    "windowType": "string",
-    "roofInsulation": "string",
-    "mainFuel": "string"
+    "epcCertificateNumber": "1700-1141-0422-4422-3253",
+    "postcode": "SW1A 1AA",
+    "address": "123 High Street, London"
   }
 }
 ```
 
-Identifier behavior:
+**Certificate with full property detail** (use when EPC is the primary source for heat-loss mapping):
 
-- Preferred: send `epcData.epcCertificateNumber` (or `certificateNumber`) using the 5x4 dashed RRN from the new MHCLG service.
-- Both Spruce create-job and estimate requests forward `epc_certificate_number` when available.
+```json
+{
+  "hasEPC": "yes",
+  "epcData": {
+    "epcCertificateNumber": "1700-1141-0422-4422-3253",
+    "postcode": "SW1A 1AA",
+    "address": "123 High Street, London",
+    "energyRating": "C",
+    "energyEfficiency": 72,
+    "potentialEnergyRating": "B",
+    "potentialEnergyEfficiency": 85,
+    "lodgementDate": "2020-06-15",
+    "epcYear": 2020,
+    "propertyType": "house",
+    "propertyTypeRaw": "House",
+    "builtForm": "detached",
+    "builtFormRaw": "Detached",
+    "floorArea": 120,
+    "floorAreaUnit": "square metres",
+    "numberOfHabitableRooms": 4,
+    "wallType": "cavity_wall",
+    "wallConstruction": "cavity_wall",
+    "wallsDescription": "Cavity wall, as built, insulated (assumed)",
+    "windowType": "double_glazed",
+    "windowsDescription": "Fully double glazed",
+    "loftInsulation": "100mm",
+    "roofInsulation": "100mm",
+    "roofDescription": "Pitched, 100 mm loft insulation",
+    "fuelType": "mains_gas",
+    "mainFuel": "mains gas (not community)",
+    "mainHeatDescription": "Boiler and radiators, mains gas",
+    "constructionAgeBand": "1996-2002",
+    "constructionAgeBandCode": "K",
+    "co2EmissionsCurrent": 3.2,
+    "environmentImpactCurrent": 52
+  }
+}
+```
 
 ### 3.5 Optional Qualifying / Other Fields
 
@@ -415,13 +532,29 @@ Default: `sqm`.
     "epcCertificateNumber": "1700-1141-0422-4422-3253",
     "postcode": "SW1A 1AA",
     "address": "123 High Street, London",
+    "energyRating": "C",
+    "energyEfficiency": 72,
+    "epcYear": 2020,
     "propertyType": "house",
+    "propertyTypeRaw": "House",
     "builtForm": "detached",
+    "builtFormRaw": "Detached",
     "floorArea": 120,
+    "floorAreaUnit": "square metres",
+    "numberOfHabitableRooms": 4,
+    "wallType": "cavity_wall",
     "wallConstruction": "cavity_wall",
-    "windowType": "double_glazing",
+    "wallsDescription": "Cavity wall, as built, insulated (assumed)",
+    "windowType": "double_glazed",
+    "windowsDescription": "Fully double glazed",
+    "loftInsulation": "100mm",
     "roofInsulation": "100mm",
-    "mainFuel": "mains gas"
+    "mainFuel": "mains gas (not community)",
+    "fuelType": "mains_gas",
+    "constructionAgeBand": "1996-2002",
+    "constructionAgeBandCode": "K",
+    "co2EmissionsCurrent": 3.2,
+    "environmentImpactCurrent": 52
   },
   "hearAboutUs": "Partner website",
   "homeEnergy": "gas_boiler",
@@ -627,7 +760,13 @@ The **`estimate`** object below matches a **real** Spruce `POST /v1/estimates` r
     },
     "hasEPC": "yes",
     "epcData": {
-      "postcode": "SW1A 1AA"
+      "epcCertificateNumber": "1700-1141-0422-4422-3253",
+      "postcode": "SW1A 1AA",
+      "address": "123 High Street, London",
+      "energyRating": "C",
+      "floorArea": 120,
+      "propertyType": "house",
+      "builtForm": "detached"
     },
     "qualifyingQuestions": {
       "goals": "reduce_bills"
@@ -678,9 +817,7 @@ The **`estimate`** object below matches a **real** Spruce `POST /v1/estimates` r
 
 **Each `estimate.estimates[]` row — fields observed from Spruce**
 
-Numeric types in the API are often integers or doubles; clients may receive either. **`customer_discount_rate_percent`** and **`discounted_total_price_including_grants_pence`** are **added by this backend** on each row (see Partner Estimate API — customer discount, section 5.1).
-
-<!-- TODO(docs): The link `./partnerEstimateSubmit.md#51-customer-discount-ecs-heat-pump-pricing` referenced above is broken — no such file exists in this repo. Restore the link once the partnerEstimateSubmit reference document is added. -->
+Numeric types in the API are often integers or doubles; clients may receive either. **`customer_discount_rate_percent`** and **`discounted_total_price_including_grants_pence`** are **added by this backend** on each row (see [Partner Estimate API — customer discount](./partnerEstimateSubmit.md#51-customer-discount-ecs-heat-pump-pricing)).
 
 | Field                                                    | Type           | Description                                                                                                                                 |
 | -------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -733,7 +870,7 @@ When the estimate call fails, **`estimate`** and **`estimateSummary`** are both 
 - `id`, `partnerId`, `widgetVersion`, `status`, `salesStatus`, `submissionChannel`
 - `property` (normalized property fields)
 - `customer` (name/email/phone)
-- `epcData`, `hasEPC`
+- `epcData` (full field list in [section 3.4](#34-optional-epc-fields)), `hasEPC`
 - `qualifyingQuestions`
 - `ecs`
 - `callbackRequest`
