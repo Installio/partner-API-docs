@@ -21,8 +21,10 @@ The integration is implemented by these functions:
 ### OMS -> HubSpot
 
 1. A lead is written to Firestore under `leads/{leadId}`.
-2. `onLeadHubSpotPush` waits until `spruce.status` is no longer `pending`.
-3. The trigger finds or creates a HubSpot contact by email.
+2. `onLeadHubSpotPush` waits until integration prerequisites finish:
+   - **Heat** (`lead_type = heat`): `spruce.status` is no longer `pending`.
+   - **Solar** (`lead_type = solar`): `integrations.openSolar.status` is no longer `pending` (OpenSolar project created or skipped/failed in `partnerSolarLeadSubmit`).
+3. The trigger finds an existing HubSpot contact (email first, then fallback matchers like phone and name+postcode) and updates it; only if no match is found does it create a new contact.
 4. The trigger creates a HubSpot deal.
 5. The trigger associates the deal to the contact using HubSpot Associations v4.
 6. The OMS lead is updated with HubSpot IDs, status, response payloads, and sync metadata.
@@ -38,31 +40,31 @@ The integration is implemented by these functions:
 
 ## Runtime Components
 
-| Component | Direction | Type | Purpose |
-|---|---|---|---|
-| `onLeadHubSpotPush` | OMS -> HubSpot | Firestore trigger | Create deal/contact, keep HubSpot in sync |
-| `hubspotWebhook` | HubSpot -> OMS | HTTPS endpoint | Apply HubSpot deal field updates to Firestore |
-
+| Component           | Direction      | Type              | Purpose                                       |
+| ------------------- | -------------- | ----------------- | --------------------------------------------- |
+| `onLeadHubSpotPush` | OMS -> HubSpot | Firestore trigger | Create deal/contact, keep HubSpot in sync     |
+| `hubspotWebhook`    | HubSpot -> OMS | HTTPS endpoint    | Apply HubSpot deal field updates to Firestore |
 
 ## HubSpot APIs Used
 
 ### Contact APIs
 
-| Method | HubSpot API | Used for |
-|---|---|---|
-| `GET` | `/crm/v3/objects/contacts/{email}?idProperty=email` | Find contact by email |
-| `POST` | `/crm/v3/objects/contacts` | Create contact |
-| `PATCH` | `/crm/v3/objects/contacts/{contactId}` | Update contact |
+| Method  | HubSpot API                                         | Used for                                                  |
+| ------- | --------------------------------------------------- | --------------------------------------------------------- |
+| `GET`   | `/crm/v3/objects/contacts/{email}?idProperty=email` | Find contact by email                                     |
+| `POST`  | `/crm/v3/objects/contacts/search`                   | Search contacts (phone / name+postcode fallback matching) |
+| `POST`  | `/crm/v3/objects/contacts`                          | Create contact                                            |
+| `PATCH` | `/crm/v3/objects/contacts/{contactId}`              | Update contact                                            |
 
 ### Deal APIs
 
-| Method | HubSpot API | Used for |
-|---|---|---|
-| `POST` | `/crm/v3/objects/deals` | Create deal |
-| `PATCH` | `/crm/v3/objects/deals/{dealId}` | Update deal |
-| `PUT` | `/crm/v4/objects/deals/{dealId}/associations/contacts/{contactId}` | Associate deal to contact |
-| `GET` | `/crm/v3/properties/deals` | Debug endpoint: list deal properties |
-| `POST` | `/crm/v3/objects/deals/batch/read` | Debug endpoint: read a deal with all properties |
+| Method  | HubSpot API                                                        | Used for                                        |
+| ------- | ------------------------------------------------------------------ | ----------------------------------------------- |
+| `POST`  | `/crm/v3/objects/deals`                                            | Create deal                                     |
+| `PATCH` | `/crm/v3/objects/deals/{dealId}`                                   | Update deal                                     |
+| `PUT`   | `/crm/v4/objects/deals/{dealId}/associations/contacts/{contactId}` | Associate deal to contact                       |
+| `GET`   | `/crm/v3/properties/deals`                                         | Debug endpoint: list deal properties            |
+| `POST`  | `/crm/v3/objects/deals/batch/read`                                 | Debug endpoint: read a deal with all properties |
 
 ## Authentication
 
@@ -126,12 +128,12 @@ The trigger performs one automatic resume attempt if:
 
 These fields are always sent to HubSpot contact records.
 
-| HubSpot contact property | OMS source | Type sent to HubSpot | Create | Update |
-|---|---|---|---|---|
-| `email` | `customer.email` | string | Yes | Yes |
-| `firstname` | `customer.firstName` | string | Yes | Yes |
-| `lastname` | `customer.lastName` | string | Yes | Yes |
-| `phone` | `customer.phone` | string | Yes | Yes |
+| HubSpot contact property | OMS source           | Type sent to HubSpot | Create | Update |
+| ------------------------ | -------------------- | -------------------- | ------ | ------ |
+| `email`                  | `customer.email`     | string               | Yes    | Yes    |
+| `firstname`              | `customer.firstName` | string               | Yes    | Yes    |
+| `lastname`               | `customer.lastName`  | string               | Yes    | Yes    |
+| `phone`                  | `customer.phone`     | string               | Yes    | Yes    |
 
 Notes:
 
@@ -153,16 +155,99 @@ INS-659 callback preferences on the lead (`callbackRequest`) map to **deal** pro
 
 ### Core deal properties
 
-| HubSpot deal property | Source | Type sent to HubSpot | Create | Update |
-|---|---|---|---|---|
-| `dealname` | `Lead: {address}` else `Lead {omsLeadId}` | string | Yes | Yes |
-| `pipeline` | `HUBSPOT_DEAL_PIPELINE` or `default` | string | Yes | No |
-| `dealstage` | `HUBSPOT_DEAL_STAGE` | string | Yes if configured | No |
+| HubSpot deal property | Source                                    | Type sent to HubSpot | Create            | Update |
+| --------------------- | ----------------------------------------- | -------------------- | ----------------- | ------ |
+| `dealname`            | `Lead: {address}` else `Lead {omsLeadId}` | string               | Yes               | Yes    |
+| `pipeline`            | `HUBSPOT_DEAL_PIPELINE` or `default`      | string               | Yes               | No     |
+| `dealstage`           | `HUBSPOT_DEAL_STAGE`                      | string               | Yes if configured | No     |
 
 Notes:
 
 - `pipeline` and `dealstage` are only set on create.
 - `updateDeal()` intentionally does not overwrite stage or pipeline, so sales users can move deals manually in HubSpot.
+
+## HubSpot deal — pricing fields (OMS → HubSpot)
+
+When `HUBSPOT_DEAL_STRUCTURED_PROPERTIES` is enabled (default) and `HUBSPOT_DEAL_STRUCTURED_FIELD_SET=portal` (default), the integration sends the pricing fields below on deal **create** and **update**. Empty values are omitted.
+
+All HubSpot API values are **strings** (numbers and booleans are stringified in the request body).
+
+### Displayed price band
+
+| HubSpot deal property | OMS source                                                                                                                                    | Type sent to HubSpot           | Example              |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ | -------------------- |
+| `price_range`         | `estimate.displayed_price_range_pence`, or computed from `estimate.estimates[0].total_price_including_grants_pence` when the range is missing | string                         | `"£5,200-£6,100"`    |
+| `lower_pence`         | Same range object                                                                                                                             | integer string (pence)         | `"520000"`           |
+| `upper_pence`         | Same range object                                                                                                                             | integer string (pence)         | `"610000"`           |
+| `discount_rate`       | `estimate.estimates[0].customer_discount_rate_percent` or `estimate.customer_discount_rate_percent`                                           | integer string (whole percent) | `"15"` (from `0.15`) |
+
+**Range computation** (when `displayed_price_range_pence` is absent): lower bound = `total_price_including_grants_pence` rounded to the nearest £100; upper bound = lower + £900. Same rules as the widget estimate page (`widget/shared/estimateDisplayRange.js`).
+
+### Total / quoted amounts
+
+| HubSpot deal property | OMS source                                                 | Type sent to HubSpot | Example     |
+| --------------------- | ---------------------------------------------------------- | -------------------- | ----------- |
+| `amount`              | `estimate.estimates[0].total_price_including_grants_pence` | decimal string (GBP) | `"5500.00"` |
+| `quoted_amount`       | Same                                                       | decimal string (GBP) | `"5500.00"` |
+| `proposal_value`      | Same                                                       | decimal string (GBP) | `"5500.00"` |
+| `cost_estimate_total` | Same                                                       | decimal string (GBP) | `"5500.00"` |
+
+### Cost breakdown
+
+| HubSpot deal property  | OMS source                                         | Type sent to HubSpot | Example     |
+| ---------------------- | -------------------------------------------------- | -------------------- | ----------- |
+| `cost_heat_pump_parts` | `estimate.estimates[0].cost_heat_pump_parts_pence` | decimal string (GBP) | `"3200.00"` |
+| `cost_installation`    | `estimate.estimates[0].cost_installation_pence`    | decimal string (GBP) | `"1800.00"` |
+| `cost_radiators`       | `estimate.estimates[0].cost_radiators_pence`       | decimal string (GBP) | `"400.00"`  |
+| `cost_survey`          | `estimate.estimates[0].cost_survey_pence`          | decimal string (GBP) | `"150.00"`  |
+
+### Grants and savings
+
+| HubSpot deal property        | OMS source                                                                                                              | Type sent to HubSpot                         | Example                          |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- | -------------------------------- |
+| `grant_bus`                  | `total_price_excluding_grants_pence − total_price_including_grants_pence` on `estimate.estimates[0]`                    | decimal string (GBP); omitted when grant ≤ 0 | `"7500.00"`                      |
+| `bus_grant_eligibility`      | Derived from grant amount                                                                                               | string enum                                  | `"Eligible"` or `"Not eligible"` |
+| `estimate_bill_savings_year` | `electricity_tariff_baseline_annual_bill_gbp − electricity_tariff_heat_pump_annual_bill_gbp` on `estimate.estimates[0]` | integer string (GBP)                         | `"420"`                          |
+
+**Note:** `budget_range` exists on the HubSpot deal object but is **not sent outbound** by OMS. It is only read **from** HubSpot via webhook into `hubspot.budgetRange`.
+
+## Callback request — lead fields (API / Firestore)
+
+Partners and the widget submit callback preferences on the lead as `callbackRequest`. Normalized shape stored on `leads/{leadId}`:
+
+| Firestore field                          | Type              | Required                | Description                                                                |
+| ---------------------------------------- | ----------------- | ----------------------- | -------------------------------------------------------------------------- |
+| `callbackRequest.questionsForCall`       | string            | No                      | Free-text questions or notes for the sales call (max 8000 chars on ingest) |
+| `callbackRequest.preferredCallTimeSlots` | string[]          | No                      | Widget slot keys, e.g. `["9-12", "14-16"]` (max 32 items)                  |
+| `callbackRequest.preferredCallDays`      | string[]          | No                      | Day names, e.g. `["monday", "wednesday"]` (max 32 items)                   |
+| `callbackRequest.submittedAt`            | string (ISO-8601) | Yes when object present | Set by the backend on normalize; not sent to HubSpot deal in portal mode   |
+
+**Accepted API aliases:** `callback_request`, `questions_for_call`, `preferred_call_days`, `preferred_call_time_slots` (nested under `callbackRequest`, under `data`, or flat at root / under `data`).
+
+**Widget time-slot keys** (stored on the lead; mapped to HubSpot labels on push):
+
+| Widget key | HubSpot `preferred_times` label |
+| ---------- | ------------------------------- |
+| `9-12`     | `9am - 12pm midday`             |
+| `12-14`    | `12pm midday - 2pm`             |
+| `14-16`    | `2pm - 4pm`                     |
+| `16-18`    | `4pm - 6pm`                     |
+
+## HubSpot deal — callback fields (OMS → HubSpot)
+
+INS-659: `callbackRequest` on the lead maps to **deal** properties (not contact properties), when `callbackRequest` is present.
+
+| HubSpot deal property | OMS source                               | Type sent to HubSpot | Transformation                                  | Example                          |
+| --------------------- | ---------------------------------------- | -------------------- | ----------------------------------------------- | -------------------------------- |
+| `preferred_days`      | `callbackRequest.preferredCallDays`      | string               | Title-cased; semicolon-separated                | `"Tuesday; Wednesday"`           |
+| `preferred_times`     | `callbackRequest.preferredCallTimeSlots` | string               | Slot keys mapped to labels; semicolon-separated | `"9am - 12pm midday; 2pm - 4pm"` |
+| `callback_questions`  | `callbackRequest.questionsForCall`       | string               | Trimmed; truncated to 4000 chars                | `"Ring after 3pm"`               |
+
+| Lead field                    | Sent to HubSpot deal (portal)? |
+| ----------------------------- | ------------------------------ |
+| `callbackRequest.submittedAt` | No                             |
+
+**Legacy field set** (`HUBSPOT_DEAL_STRUCTURED_FIELD_SET=breengy`): same callback data maps to prefixed custom deal properties (`breengy_callback_questions_for_call`, `breengy_callback_preferred_call_time_slots`, `breengy_callback_preferred_call_days`, `breengy_callback_submitted_at`).
 
 ## Default Structured Portal Deal Fields
 
@@ -170,78 +255,92 @@ When `HUBSPOT_DEAL_STRUCTURED_PROPERTIES` is enabled and `HUBSPOT_DEAL_STRUCTURE
 
 All values are sent as strings because the HubSpot API request body is built from stringified values.
 
-| HubSpot deal property | OMS source / logic | Type sent to HubSpot | Create | Update |
-|---|---|---|---|---|
-| `acquisition_or_partner_source` | partner mapping or partner display name | string | Yes | Yes |
-| `amount` | total estimate GBP | decimal string | Yes | Yes |
-| `bathrooms` | `property.bathrooms` | string | Yes | Yes |
-| `bedrooms` | `property.bedrooms` | string | Yes | Yes |
-| `built_year_or_band` | `epcData.constructionAgeBand` or similar EPC fields | string | Yes | Yes |
-| `bus_grant_eligibility` | derived from grant amount | string | Yes | Yes |
-| `callback_questions` | `callbackRequest.questionsForCall` | string (truncated to 4000 chars) | Yes when present | Yes when present |
-| `closed_won_reason` | not populated by OMS push | not sent | No | No |
-| `closed_lost_reason` | not populated by OMS push | not sent | No | No |
-| `commercial_notes` | combined customer name, email, phone | string | Yes | Yes |
-| `cost_estimate_total` | total estimate GBP | decimal string | Yes | Yes |
-| `cost_heat_pump_parts` | estimate part cost GBP | decimal string | Yes | Yes |
-| `cost_installation` | installation cost GBP | decimal string | Yes | Yes |
-| `cost_radiators` | radiator cost GBP | decimal string | Yes | Yes |
-| `cost_survey` | survey cost GBP | decimal string | Yes | Yes |
-| `deal_handling_status` | mapped from OMS `status` | string | Yes when mapped | Yes when mapped |
-| `design_temp_c` | `estimate.estimates[0].flow_temp_c` | string | Yes | Yes |
-| `discovery_call_date` | not populated by OMS push | not sent | No | No |
-| `estimate_bill_savings_year` | derived annual savings | string | Yes | Yes |
-| `estimate_co_savings_kgyear` | `estimate.estimates[0].co2_saved_kg` | string | Yes | Yes |
-| `estimate_last_opened` | not populated by OMS push | not sent | No | No |
-| `estimate_sent_date` | `spruce.submittedAt` | HubSpot date millis string | Yes | Yes |
-| `estimate_url` | estimate URL from Spruce/estimate context | string | Yes | Yes |
-| `estimate_viewed` | not populated by OMS push | not sent | No | No |
-| `floor_area_m` | `property.floorArea` | string | Yes | Yes |
-| `floors` | `property.floors` | string | Yes | Yes |
-| `flow_temperature_c` | `estimate.estimates[0].flow_temp_c` | string | Yes | Yes |
-| `grant_bus` | derived grant amount GBP | decimal string | Yes | Yes |
-| `heat_loss_per_m_wm` | derived from total heat loss / floor area | decimal string | Yes | Yes |
-| `heat_loss_total_kw` | derived from total heat loss | decimal string | Yes | Yes |
-| `homeowner_motivation` | mapped from `qualifyingQuestions.goals` | string | Yes | Yes |
-| `internal_temp_c` | `estimate.estimates[0].internal_temp_c` | string | Yes | Yes |
-| `interested_in_battery` | derived from `qualifyingQuestions.homeEnergy.battery` | boolean string (`true`/`false`) | Yes | Yes |
-| `interested_in_heat_pump` | derived from `qualifyingQuestions.homeEnergy.heat_pump` or estimate presence | boolean string (`true`/`false`) | Yes | Yes |
-| `latitude` | `property.lat` | string | Yes | Yes |
-| `lead_handing_status` | mapped from OMS `status` | string | Yes when mapped | Yes when mapped |
-| `longitude` | `property.lng` | string | Yes | Yes |
-| `preferred_days` | `callbackRequest.preferredCallDays` | string (semicolon-separated, title-cased day values) | Yes when present | Yes when present |
-| `preferred_times` | `callbackRequest.preferredCallTimeSlots` | string (semicolon-separated; widget slot keys like `9-12` mapped to portal labels such as `9am - 12pm midday`) | Yes when present | Yes when present |
-| `project_details` | property description plus qualifying questions JSON | string | Yes | Yes |
-| `property_address_line` | `property.address` | string | Yes | Yes |
-| `property_postcode` | `property.postcode` | string | Yes | Yes |
-| `property_type` | mapped from `property.propertyType` | string | Yes | Yes |
-| `proposal_accepted_date` | not populated by OMS push | not sent | No | No |
-| `proposal_requested` | not populated by OMS push | not sent | No | No |
-| `proposal_sent_date` | not populated by OMS push | not sent | No | No |
-| `proposal_sent_date_b2b` | not populated by OMS push | not sent | No | No |
-| `proposal_value` | total estimate GBP | decimal string | Yes | Yes |
-| `proposal_viewed` | not populated by OMS push | not sent | No | No |
-| `qualification_outcome` | mapped from OMS `status` | string | Yes when mapped | Yes when mapped |
-| `quoted_amount` | total estimate GBP | decimal string | Yes | Yes |
-| `rate_card_requested` | not populated by OMS push | not sent | No | No |
-| `rate_card_sent_date` | not populated by OMS push | not sent | No | No |
-| `rejection_reason` | not populated by OMS push | not sent | No | No |
-| `scop` | `estimate.estimates[0].overall_scop` | string | Yes | Yes |
-| `solar_deal_id` | OMS lead ID | string | Yes | Yes |
-| `spruce_job_id` | `spruce.uuid` | string | Yes | Yes |
-| `spruce_job_name` | `spruce.jobReference` else `spruce.uuid` | string | Yes | Yes |
-| `spruce_job_reference` | `spruce.jobReference` | string | Yes | Yes |
-| `spruce_lead_source_tag` | `HUBSPOT_DEAL_SPRUCE_LEAD_SOURCE_TAG` or `estimate_widget` | string | Yes | Yes |
-| `spruce_project_type` | `property.projectType` | string | Yes | Yes |
-| `survey_booked_date` | not populated by OMS push | not sent | No | No |
-| `survey_booked_date_and_time` | not populated by OMS push | not sent | No | No |
-| `survey_completed_date` | not populated by OMS push | not sent | No | No |
-| `survey_requested_date` | not populated by OMS push | not sent | No | No |
-| `survey_required` | not populated by OMS push | not sent | No | No |
-| `system_design_cylinder` | first hot water cylinder name | string | Yes | Yes |
-| `system_design_heat_pump_model` | first heat pump name | string | Yes | Yes |
-| `walls` | `property.wallType` | string | Yes | Yes |
-| `windows` | `property.windowType` | string | Yes | Yes |
+| HubSpot deal property           | OMS source / logic                                                               | Type sent to HubSpot                                                                                           | Create           | Update           |
+| ------------------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ---------------- | ---------------- |
+| `acquisition_or_partner_source` | partner mapping or partner display name                                          | string                                                                                                         | Yes              | Yes              |
+| `amount`                        | total estimate GBP                                                               | decimal string                                                                                                 | Yes              | Yes              |
+| `bathrooms`                     | `property.bathrooms`                                                             | string                                                                                                         | Yes              | Yes              |
+| `bedrooms`                      | `property.bedrooms`                                                              | string                                                                                                         | Yes              | Yes              |
+| `built_year_or_band`            | `epcData.constructionAgeBand` or similar EPC fields                              | string                                                                                                         | Yes              | Yes              |
+| `bus_grant_eligibility`         | derived from grant amount                                                        | string (`Eligible` / `Not eligible`)                                                                           | Yes              | Yes              |
+| `callback_questions`            | `callbackRequest.questionsForCall`                                               | string (truncated to 4000 chars)                                                                               | Yes when present | Yes when present |
+| `discount_rate`                 | `estimate.estimates[0].customer_discount_rate_percent`                           | integer string (whole percent, e.g. `15` from `0.15`)                                                          | Yes when present | Yes when present |
+| `closed_won_reason`             | not populated by OMS push                                                        | not sent                                                                                                       | No               | No               |
+| `closed_lost_reason`            | not populated by OMS push                                                        | not sent                                                                                                       | No               | No               |
+| `commercial_notes`              | combined customer name, email, phone                                             | string                                                                                                         | Yes              | Yes              |
+| `cost_estimate_total`           | total estimate GBP                                                               | decimal string                                                                                                 | Yes              | Yes              |
+| `cost_heat_pump_parts`          | estimate part cost GBP                                                           | decimal string                                                                                                 | Yes              | Yes              |
+| `cost_installation`             | installation cost GBP                                                            | decimal string                                                                                                 | Yes              | Yes              |
+| `cost_radiators`                | radiator cost GBP                                                                | decimal string                                                                                                 | Yes              | Yes              |
+| `cost_survey`                   | survey cost GBP                                                                  | decimal string                                                                                                 | Yes              | Yes              |
+| `deal_handling_status`          | mapped from OMS `status`                                                         | string                                                                                                         | Yes when mapped  | Yes when mapped  |
+| `design_temp_c`                 | `estimate.estimates[0].flow_temp_c`                                              | string                                                                                                         | Yes              | Yes              |
+| `discovery_call_date`           | not populated by OMS push                                                        | not sent                                                                                                       | No               | No               |
+| `estimate_bill_savings_year`    | derived annual savings                                                           | string                                                                                                         | Yes              | Yes              |
+| `estimate_co_savings_kgyear`    | `estimate.estimates[0].co2_saved_kg`                                             | string                                                                                                         | Yes              | Yes              |
+| `estimate_last_opened`          | not populated by OMS push                                                        | not sent                                                                                                       | No               | No               |
+| `estimate_sent_date`            | `spruce.submittedAt`                                                             | HubSpot date millis string                                                                                     | Yes              | Yes              |
+| `estimate_url`                  | estimate URL from Spruce/estimate context                                        | string                                                                                                         | Yes              | Yes              |
+| `estimate_viewed`               | not populated by OMS push                                                        | not sent                                                                                                       | No               | No               |
+| `floor_area_m`                  | `property.floorArea`                                                             | string                                                                                                         | Yes              | Yes              |
+| `floors`                        | `property.floors`                                                                | string                                                                                                         | Yes              | Yes              |
+| `flow_temperature_c`            | `estimate.estimates[0].flow_temp_c`                                              | string                                                                                                         | Yes              | Yes              |
+| `grant_bus`                     | derived grant amount GBP                                                         | decimal string                                                                                                 | Yes              | Yes              |
+| `heat_loss_per_m_wm`            | derived from total heat loss / floor area                                        | decimal string                                                                                                 | Yes              | Yes              |
+| `heat_loss_total_kw`            | derived from total heat loss                                                     | decimal string                                                                                                 | Yes              | Yes              |
+| `homeowner_motivation`          | mapped from `qualifyingQuestions.goals`                                          | string                                                                                                         | Yes              | Yes              |
+| `internal_temp_c`               | `estimate.estimates[0].internal_temp_c`                                          | string                                                                                                         | Yes              | Yes              |
+| `interested_in_battery`         | derived from `qualifyingQuestions.homeEnergy.battery`                            | boolean string (`true`/`false`)                                                                                | Yes              | Yes              |
+| `interested_in_heat_pump`       | derived from `qualifyingQuestions.homeEnergy.heat_pump` or estimate presence     | boolean string (`true`/`false`)                                                                                | Yes              | Yes              |
+| `latitude`                      | `property.lat`                                                                   | string                                                                                                         | Yes              | Yes              |
+| `lead_handing_status`           | mapped from OMS `status`                                                         | string                                                                                                         | Yes when mapped  | Yes when mapped  |
+| `lower_pence`                   | `estimate.displayed_price_range_pence.lower_pence` (or computed range)           | integer string (pence)                                                                                         | Yes when present | Yes when present |
+| `longitude`                     | `property.lng`                                                                   | string                                                                                                         | Yes              | Yes              |
+| `preferred_days`                | `callbackRequest.preferredCallDays`                                              | string (semicolon-separated, title-cased day values)                                                           | Yes when present | Yes when present |
+| `preferred_times`               | `callbackRequest.preferredCallTimeSlots`                                         | string (semicolon-separated; widget slot keys like `9-12` mapped to portal labels such as `9am - 12pm midday`) | Yes when present | Yes when present |
+| `price_range`                   | `estimate.displayed_price_range_pence` (or computed from including-grants total) | string (formatted GBP band, e.g. `£5,200-£6,100`)                                                              | Yes when present | Yes when present |
+| `project_details`               | not populated by OMS push (superseded by separate `qq_*` deal properties)        | not sent                                                                                                       | No               | No               |
+| `property_address_line`         | `property.address`                                                               | string                                                                                                         | Yes              | Yes              |
+| `property_postcode`             | `property.postcode`                                                              | string                                                                                                         | Yes              | Yes              |
+| `property_type`                 | mapped from `property.propertyType`                                              | string                                                                                                         | Yes              | Yes              |
+| `proposal_accepted_date`        | not populated by OMS push                                                        | not sent                                                                                                       | No               | No               |
+| `proposal_requested`            | not populated by OMS push                                                        | not sent                                                                                                       | No               | No               |
+| `proposal_sent_date`            | not populated by OMS push                                                        | not sent                                                                                                       | No               | No               |
+| `proposal_sent_date_b2b`        | not populated by OMS push                                                        | not sent                                                                                                       | No               | No               |
+| `proposal_value`                | total estimate GBP                                                               | decimal string                                                                                                 | Yes              | Yes              |
+| `proposal_viewed`               | not populated by OMS push                                                        | not sent                                                                                                       | No               | No               |
+| `qualification_outcome`         | mapped from OMS `status`                                                         | string                                                                                                         | Yes when mapped  | Yes when mapped  |
+| `quoted_amount`                 | total estimate GBP                                                               | decimal string                                                                                                 | Yes              | Yes              |
+| `qq_goals`                      | `qualifyingQuestions.goals`                                                      | string (semicolon-separated when array)                                                                        | Yes              | Yes              |
+| `qq_home_energy_battery`        | `qualifyingQuestions.homeEnergy.battery`                                         | boolean string (`true`/`false`)                                                                                | Yes              | Yes              |
+| `qq_home_energy_solar`          | `qualifyingQuestions.homeEnergy.solar`                                           | boolean string (`true`/`false`)                                                                                | Yes              | Yes              |
+| `home_energy_ev_charger`        | `qualifyingQuestions.homeEnergy.ev_charger`                                      | boolean string (`true`/`false`)                                                                                | Yes              | Yes              |
+| `tenure`                        | `qualifyingQuestions.tenure`                                                     | string                                                                                                         | Yes              | Yes              |
+| `external_space`                | `qualifyingQuestions.externalSpace`                                              | string                                                                                                         | Yes              | Yes              |
+| `cylinder_space`                | `qualifyingQuestions.cylinderSpace`                                              | string                                                                                                         | Yes              | Yes              |
+| `renovating`                    | `qualifyingQuestions.renovating`                                                 | string                                                                                                         | Yes              | Yes              |
+| `rate_card_requested`           | not populated by OMS push                                                        | not sent                                                                                                       | No               | No               |
+| `rate_card_sent_date`           | not populated by OMS push                                                        | not sent                                                                                                       | No               | No               |
+| `rejection_reason`              | not populated by OMS push                                                        | not sent                                                                                                       | No               | No               |
+| `scop`                          | `estimate.estimates[0].overall_scop`                                             | string                                                                                                         | Yes              | Yes              |
+| `solar_deal_id`                 | OMS lead ID                                                                      | string                                                                                                         | Yes              | Yes              |
+| `open_solar_project_id`         | `integrations.openSolar.projectId`                                               | string                                                                                                         | Yes (solar)      | Yes (solar)      |
+| `open_solar_url`                | `integrations.openSolar.url` (staff project link)                                | string                                                                                                         | Yes (solar)      | Yes (solar)      |
+| `spruce_job_id`                 | `spruce.uuid`                                                                    | string                                                                                                         | Yes              | Yes              |
+| `spruce_job_name`               | `spruce.jobReference` else `spruce.uuid`                                         | string                                                                                                         | Yes              | Yes              |
+| `spruce_job_reference`          | `spruce.jobReference`                                                            | string                                                                                                         | Yes              | Yes              |
+| `spruce_lead_source_tag`        | `HUBSPOT_DEAL_SPRUCE_LEAD_SOURCE_TAG` or `estimate_widget`                       | string                                                                                                         | Yes              | Yes              |
+| `spruce_project_type`           | `property.projectType`                                                           | string                                                                                                         | Yes              | Yes              |
+| `survey_booked_date`            | not populated by OMS push                                                        | not sent                                                                                                       | No               | No               |
+| `survey_booked_date_and_time`   | not populated by OMS push                                                        | not sent                                                                                                       | No               | No               |
+| `survey_completed_date`         | not populated by OMS push                                                        | not sent                                                                                                       | No               | No               |
+| `survey_requested_date`         | not populated by OMS push                                                        | not sent                                                                                                       | No               | No               |
+| `survey_required`               | not populated by OMS push                                                        | not sent                                                                                                       | No               | No               |
+| `system_design_cylinder`        | first hot water cylinder name                                                    | string                                                                                                         | Yes              | Yes              |
+| `system_design_heat_pump_model` | first heat pump name                                                             | string                                                                                                         | Yes              | Yes              |
+| `upper_pence`                   | `estimate.displayed_price_range_pence.upper_pence` (or computed range)           | integer string (pence)                                                                                         | Yes when present | Yes when present |
+| `walls`                         | `property.wallType`                                                              | string                                                                                                         | Yes              | Yes              |
+| `windows`                       | `property.windowType`                                                            | string                                                                                                         | Yes              | Yes              |
 
 Notes:
 
@@ -272,20 +371,20 @@ Changes in these lead fields can trigger an outbound HubSpot PATCH after the ini
 
 After create/update attempts, the OMS lead is updated with:
 
-| Firestore field | Type | Meaning |
-|---|---|---|
-| `hubspot.status` | string | `pushing`, `submitted`, or `failed` |
-| `hubspot.pushedAt` | timestamp | Last create/resume attempt time |
-| `hubspot.contactId` | string or null | HubSpot contact ID |
-| `hubspot.dealId` | string or null | HubSpot deal ID |
-| `hubspot.dealUrl` | string or null | HubSpot CRM deep link when `HUBSPOT_PORTAL_ID` is set |
-| `hubspot.response` | object | Raw result metadata from contact/deal operations |
-| `hubspot.error` | string or null | Last create/resume error |
-| `hubspot.lastSyncedAt` | timestamp | Last update-sync time after PATCH |
-| `hubspot.syncError` | string or null | Last PATCH error |
-| `hubspot.associationResumeAttempted` | boolean | Prevents repeated resume attempts |
-| `metadata.hubspotLastPush` | object | Summary of last create/resume run |
-| `metadata.hubspotLastSync` | object | Summary of last update-sync run |
+| Firestore field                      | Type           | Meaning                                               |
+| ------------------------------------ | -------------- | ----------------------------------------------------- |
+| `hubspot.status`                     | string         | `pushing`, `submitted`, or `failed`                   |
+| `hubspot.pushedAt`                   | timestamp      | Last create/resume attempt time                       |
+| `hubspot.contactId`                  | string or null | HubSpot contact ID                                    |
+| `hubspot.dealId`                     | string or null | HubSpot deal ID                                       |
+| `hubspot.dealUrl`                    | string or null | HubSpot CRM deep link when `HUBSPOT_PORTAL_ID` is set |
+| `hubspot.response`                   | object         | Raw result metadata from contact/deal operations      |
+| `hubspot.error`                      | string or null | Last create/resume error                              |
+| `hubspot.lastSyncedAt`               | timestamp      | Last update-sync time after PATCH                     |
+| `hubspot.syncError`                  | string or null | Last PATCH error                                      |
+| `hubspot.associationResumeAttempted` | boolean        | Prevents repeated resume attempts                     |
+| `metadata.hubspotLastPush`           | object         | Summary of last create/resume run                     |
+| `metadata.hubspotLastSync`           | object         | Summary of last update-sync run                       |
 
 ## HubSpot Webhook Contract
 
@@ -301,11 +400,11 @@ After create/update attempts, the OMS lead is updated with:
 
 The webhook implementation is built around HubSpot deal subscriptions.
 
-| Event | Subscription type | Current OMS handler behavior |
-|---|---|---|
-| Created | `deal.creation` | Received only if configured in HubSpot; currently ignored by the handler |
-| Deleted | `deal.deletion` | Received only if configured in HubSpot; currently ignored by the handler |
-| Deal property changed | `deal.propertyChange` | Processed when `objectId` is present |
+| Event                 | Subscription type     | Current OMS handler behavior                                             |
+| --------------------- | --------------------- | ------------------------------------------------------------------------ |
+| Created               | `deal.creation`       | Received only if configured in HubSpot; currently ignored by the handler |
+| Deleted               | `deal.deletion`       | Received only if configured in HubSpot; currently ignored by the handler |
+| Deal property changed | `deal.propertyChange` | Processed when `objectId` is present                                     |
 
 Important:
 
@@ -325,102 +424,105 @@ For each HubSpot deal field you want OMS to react to, create a HubSpot webhook s
 
 These subscriptions are supported by the current `hubspotWebhook` handler and will update Firestore.
 
-| HubSpot deal property | Subscription type | Sent by OMS backend | OMS action |
-|---|---|---|---|
-| `dealstage` | `deal.propertyChange` | Yes | Updates `salesStatus` and HubSpot sync metadata |
-| `amount` | `deal.propertyChange` | Yes | Updates `hubspot.amount` |
-| `bathrooms` | `deal.propertyChange` | Yes | Updates `property.bathrooms` |
-| `bedrooms` | `deal.propertyChange` | Yes | Updates `property.bedrooms` |
-| `bus_grant_eligibility` | `deal.propertyChange` | Yes | Updates `hubspot.busGrantEligibility` |
-| `closed_won_reason` | `deal.propertyChange` | No | Updates `hubspot.closedWonReason` |
-| `closed_lost_reason` | `deal.propertyChange` | No | Updates `hubspot.closedLostReason` |
-| `closedate` | `deal.propertyChange` | No | Updates `hubspot.closeDate` |
-| `commercial_notes` | `deal.propertyChange` | Yes | Updates `hubspot.commercialNotes` |
-| `credentials_deck_sent` | `deal.propertyChange` | No | Updates `hubspot.credentialsDeckSent` |
-| `deal_handling_status` | `deal.propertyChange` | Yes | Updates `hubspot.dealHandlingStatus` |
-| `decision_maker_contact` | `deal.propertyChange` | No | Updates `hubspot.decisionMakerContact` |
-| `discovery_call_date` | `deal.propertyChange` | No | Updates `hubspot.discoveryCallDate` |
-| `email` | `deal.propertyChange` | No | Updates `customer.email` |
-| `estimate_last_opened` | `deal.propertyChange` | No | Updates `hubspot.estimateLastOpened` |
-| `estimate_viewed` | `deal.propertyChange` | No | Updates `hubspot.estimateViewed` |
-| `firstname` | `deal.propertyChange` | No | Updates `customer.firstName` |
-| `floor_area_m` | `deal.propertyChange` | Yes | Updates `property.floorArea` |
-| `floors` | `deal.propertyChange` | Yes | Updates `property.floors` |
-| `homeowner_motivation` | `deal.propertyChange` | Yes | Updates `hubspot.homeownerMotivation` |
-| `hs_next_step` | `deal.propertyChange` | No | Updates `hubspot.nextStep` |
-| `hs_priority` | `deal.propertyChange` | No | Updates `hubspot.priority` |
-| `hubspot_owner_assigneddate` | `deal.propertyChange` | No | Updates `hubspot.ownerAssignedDate` |
-| `hubspot_owner_id` | `deal.propertyChange` | No | Updates `hubspot.ownerId` |
-| `intro_call_date` | `deal.propertyChange` | No | Updates `hubspot.introCallDate` |
-| `lastname` | `deal.propertyChange` | No | Updates `customer.lastName` |
-| `latitude` | `deal.propertyChange` | Yes | Updates `property.lat` |
-| `lead_handing_status` | `deal.propertyChange` | Yes | Updates `hubspot.leadHandingStatus` |
-| `likelihood_to_close` | `deal.propertyChange` | No | Updates `hubspot.likelihoodToClose` |
-| `longitude` | `deal.propertyChange` | Yes | Updates `property.lng` |
-| `phone` | `deal.propertyChange` | No | Updates `customer.phone` |
-| `proposal_accepted_date` | `deal.propertyChange` | No | Updates `hubspot.proposalAcceptedDate` |
-| `proposal_requested` | `deal.propertyChange` | No | Updates `hubspot.proposalRequested` |
-| `proposal_sent_date` | `deal.propertyChange` | No | Updates `hubspot.proposalSentDate` |
-| `proposal_sent_date_b2b` | `deal.propertyChange` | No | Updates `hubspot.proposalSentDateB2b` |
-| `proposal_value` | `deal.propertyChange` | Yes | Updates `hubspot.proposalValue` |
-| `proposal_viewed` | `deal.propertyChange` | No | Updates `hubspot.proposalViewed` |
-| `property_address_line` | `deal.propertyChange` | Yes | Updates `property.address` |
-| `property_postcode` | `deal.propertyChange` | Yes | Updates `property.postcode` |
-| `property_type` | `deal.propertyChange` | Yes | Updates `property.propertyType` |
-| `qualification_outcome` | `deal.propertyChange` | Yes | Updates `hubspot.qualificationOutcome` |
-| `rate_card_requested` | `deal.propertyChange` | No | Updates `hubspot.rateCardRequested` |
-| `rate_card_sent_date` | `deal.propertyChange` | No | Updates `hubspot.rateCardSentDate` |
-| `rejection_reason` | `deal.propertyChange` | No | Updates `hubspot.rejectionReason` |
-| `survey_booked_date` | `deal.propertyChange` | No | Updates `hubspot.surveyBookedDate` |
-| `survey_booked_date_and_time` | `deal.propertyChange` | No | Updates `hubspot.surveyBookedDateAndTime` |
-| `survey_completed_date` | `deal.propertyChange` | No | Updates `hubspot.surveyCompletedDate` |
-| `survey_requested_date` | `deal.propertyChange` | No | Updates `hubspot.surveyRequestedDate` |
-| `survey_required` | `deal.propertyChange` | No | Updates `hubspot.surveyRequired` |
-| `walls` | `deal.propertyChange` | Yes | Updates `property.wallType` |
-| `windows` | `deal.propertyChange` | Yes | Updates `property.windowType` |
+| HubSpot deal property         | Subscription type     | Sent by OMS backend | OMS action                                      |
+| ----------------------------- | --------------------- | ------------------- | ----------------------------------------------- |
+| `dealstage`                   | `deal.propertyChange` | Yes                 | Updates `salesStatus` and HubSpot sync metadata |
+| `amount`                      | `deal.propertyChange` | Yes                 | Updates `hubspot.amount`                        |
+| `bathrooms`                   | `deal.propertyChange` | Yes                 | Updates `property.bathrooms`                    |
+| `bedrooms`                    | `deal.propertyChange` | Yes                 | Updates `property.bedrooms`                     |
+| `bus_grant_eligibility`       | `deal.propertyChange` | Yes                 | Updates `hubspot.busGrantEligibility`           |
+| `closed_won_reason`           | `deal.propertyChange` | No                  | Updates `hubspot.closedWonReason`               |
+| `closed_lost_reason`          | `deal.propertyChange` | No                  | Updates `hubspot.closedLostReason`              |
+| `closedate`                   | `deal.propertyChange` | No                  | Updates `hubspot.closeDate`                     |
+| `commercial_notes`            | `deal.propertyChange` | Yes                 | Updates `hubspot.commercialNotes`               |
+| `credentials_deck_sent`       | `deal.propertyChange` | No                  | Updates `hubspot.credentialsDeckSent`           |
+| `deal_handling_status`        | `deal.propertyChange` | Yes                 | Updates `hubspot.dealHandlingStatus`            |
+| `decision_maker_contact`      | `deal.propertyChange` | No                  | Updates `hubspot.decisionMakerContact`          |
+| `discovery_call_date`         | `deal.propertyChange` | No                  | Updates `hubspot.discoveryCallDate`             |
+| `email`                       | `deal.propertyChange` | No                  | Updates `customer.email`                        |
+| `estimate_last_opened`        | `deal.propertyChange` | No                  | Updates `hubspot.estimateLastOpened`            |
+| `estimate_viewed`             | `deal.propertyChange` | No                  | Updates `hubspot.estimateViewed`                |
+| `firstname`                   | `deal.propertyChange` | No                  | Updates `customer.firstName`                    |
+| `floor_area_m`                | `deal.propertyChange` | Yes                 | Updates `property.floorArea`                    |
+| `floors`                      | `deal.propertyChange` | Yes                 | Updates `property.floors`                       |
+| `homeowner_motivation`        | `deal.propertyChange` | Yes                 | Updates `hubspot.homeownerMotivation`           |
+| `hs_next_step`                | `deal.propertyChange` | No                  | Updates `hubspot.nextStep`                      |
+| `hs_priority`                 | `deal.propertyChange` | No                  | Updates `hubspot.priority`                      |
+| `hubspot_owner_assigneddate`  | `deal.propertyChange` | No                  | Updates `hubspot.ownerAssignedDate`             |
+| `hubspot_owner_id`            | `deal.propertyChange` | No                  | Updates `hubspot.ownerId`                       |
+| `intro_call_date`             | `deal.propertyChange` | No                  | Updates `hubspot.introCallDate`                 |
+| `lastname`                    | `deal.propertyChange` | No                  | Updates `customer.lastName`                     |
+| `latitude`                    | `deal.propertyChange` | Yes                 | Updates `property.lat`                          |
+| `lead_handing_status`         | `deal.propertyChange` | Yes                 | Updates `hubspot.leadHandingStatus`             |
+| `likelihood_to_close`         | `deal.propertyChange` | No                  | Updates `hubspot.likelihoodToClose`             |
+| `longitude`                   | `deal.propertyChange` | Yes                 | Updates `property.lng`                          |
+| `phone`                       | `deal.propertyChange` | No                  | Updates `customer.phone`                        |
+| `proposal_accepted_date`      | `deal.propertyChange` | No                  | Updates `hubspot.proposalAcceptedDate`          |
+| `proposal_requested`          | `deal.propertyChange` | No                  | Updates `hubspot.proposalRequested`             |
+| `proposal_sent_date`          | `deal.propertyChange` | No                  | Updates `hubspot.proposalSentDate`              |
+| `proposal_sent_date_b2b`      | `deal.propertyChange` | No                  | Updates `hubspot.proposalSentDateB2b`           |
+| `proposal_value`              | `deal.propertyChange` | Yes                 | Updates `hubspot.proposalValue`                 |
+| `proposal_viewed`             | `deal.propertyChange` | No                  | Updates `hubspot.proposalViewed`                |
+| `property_address_line`       | `deal.propertyChange` | Yes                 | Updates `property.address`                      |
+| `property_postcode`           | `deal.propertyChange` | Yes                 | Updates `property.postcode`                     |
+| `property_type`               | `deal.propertyChange` | Yes                 | Updates `property.propertyType`                 |
+| `qualification_outcome`       | `deal.propertyChange` | Yes                 | Updates `hubspot.qualificationOutcome`          |
+| `rate_card_requested`         | `deal.propertyChange` | No                  | Updates `hubspot.rateCardRequested`             |
+| `rate_card_sent_date`         | `deal.propertyChange` | No                  | Updates `hubspot.rateCardSentDate`              |
+| `rejection_reason`            | `deal.propertyChange` | No                  | Updates `hubspot.rejectionReason`               |
+| `survey_booked_date`          | `deal.propertyChange` | No                  | Updates `hubspot.surveyBookedDate`              |
+| `survey_booked_date_and_time` | `deal.propertyChange` | No                  | Updates `hubspot.surveyBookedDateAndTime`       |
+| `survey_completed_date`       | `deal.propertyChange` | No                  | Updates `hubspot.surveyCompletedDate`           |
+| `survey_requested_date`       | `deal.propertyChange` | No                  | Updates `hubspot.surveyRequestedDate`           |
+| `survey_required`             | `deal.propertyChange` | No                  | Updates `hubspot.surveyRequired`                |
+| `walls`                       | `deal.propertyChange` | Yes                 | Updates `property.wallType`                     |
+| `windows`                     | `deal.propertyChange` | Yes                 | Updates `property.windowType`                   |
 
 ### Deal property subscriptions sent by OMS but currently ignored by OMS webhook handler
 
 These fields are created or updated in HubSpot by `onLeadHubSpotPush`, but a webhook change for them is not currently written back into Firestore because they are not in `HUBSPOT_PROP_TO_FIRESTORE`.
 
-| HubSpot deal property | Subscription type | Sent by OMS backend | OMS action if webhook fires |
-|---|---|---|---|
-| `acquisition_or_partner_source` | `deal.propertyChange` | Yes | Ignored |
-| `built_year_or_band` | `deal.propertyChange` | Yes | Ignored |
-| `callback_questions` | `deal.propertyChange` | Yes when `callbackRequest` present | Ignored |
-| `cost_estimate_total` | `deal.propertyChange` | Yes | Ignored |
-| `cost_heat_pump_parts` | `deal.propertyChange` | Yes | Ignored |
-| `cost_installation` | `deal.propertyChange` | Yes | Ignored |
-| `cost_radiators` | `deal.propertyChange` | Yes | Ignored |
-| `cost_survey` | `deal.propertyChange` | Yes | Ignored |
-| `dealname` | `deal.propertyChange` | Yes | Ignored |
-| `design_temp_c` | `deal.propertyChange` | Yes | Ignored |
-| `estimate_bill_savings_year` | `deal.propertyChange` | Yes | Ignored |
-| `estimate_co_savings_kgyear` | `deal.propertyChange` | Yes | Ignored |
-| `estimate_sent_date` | `deal.propertyChange` | Yes | Ignored |
-| `estimate_url` | `deal.propertyChange` | Yes | Ignored |
-| `flow_temperature_c` | `deal.propertyChange` | Yes | Ignored |
-| `grant_bus` | `deal.propertyChange` | Yes | Ignored |
-| `heat_loss_per_m_wm` | `deal.propertyChange` | Yes | Ignored |
-| `heat_loss_total_kw` | `deal.propertyChange` | Yes | Ignored |
-| `hs_exchange_rate` | `deal.propertyChange` | No | Ignored |
-| `internal_temp_c` | `deal.propertyChange` | Yes | Ignored |
-| `interested_in_battery` | `deal.propertyChange` | Yes | Ignored |
-| `interested_in_heat_pump` | `deal.propertyChange` | Yes | Ignored |
-| `pipeline` | `deal.propertyChange` | Yes | Ignored |
-| `preferred_days` | `deal.propertyChange` | Yes when `callbackRequest` present | Ignored |
-| `preferred_times` | `deal.propertyChange` | Yes when `callbackRequest` present | Ignored |
-| `project_details` | `deal.propertyChange` | Yes | Ignored |
-| `quoted_amount` | `deal.propertyChange` | Yes | Ignored |
-| `scop` | `deal.propertyChange` | Yes | Ignored |
-| `solar_deal_id` | `deal.propertyChange` | Yes | Ignored |
-| `spruce_job_id` | `deal.propertyChange` | Yes | Ignored |
-| `spruce_job_name` | `deal.propertyChange` | Yes | Ignored |
-| `spruce_job_reference` | `deal.propertyChange` | Yes | Ignored |
-| `spruce_lead_source_tag` | `deal.propertyChange` | Yes | Ignored |
-| `spruce_project_type` | `deal.propertyChange` | Yes | Ignored |
-| `system_design_cylinder` | `deal.propertyChange` | Yes | Ignored |
-| `system_design_heat_pump_model` | `deal.propertyChange` | Yes | Ignored |
+| HubSpot deal property           | Subscription type     | Sent by OMS backend                | OMS action if webhook fires |
+| ------------------------------- | --------------------- | ---------------------------------- | --------------------------- |
+| `acquisition_or_partner_source` | `deal.propertyChange` | Yes                                | Ignored                     |
+| `built_year_or_band`            | `deal.propertyChange` | Yes                                | Ignored                     |
+| `callback_questions`            | `deal.propertyChange` | Yes when `callbackRequest` present | Ignored                     |
+| `discount_rate`                 | `deal.propertyChange` | Yes when estimate present          | Ignored                     |
+| `cost_estimate_total`           | `deal.propertyChange` | Yes                                | Ignored                     |
+| `cost_heat_pump_parts`          | `deal.propertyChange` | Yes                                | Ignored                     |
+| `cost_installation`             | `deal.propertyChange` | Yes                                | Ignored                     |
+| `cost_radiators`                | `deal.propertyChange` | Yes                                | Ignored                     |
+| `cost_survey`                   | `deal.propertyChange` | Yes                                | Ignored                     |
+| `dealname`                      | `deal.propertyChange` | Yes                                | Ignored                     |
+| `design_temp_c`                 | `deal.propertyChange` | Yes                                | Ignored                     |
+| `estimate_bill_savings_year`    | `deal.propertyChange` | Yes                                | Ignored                     |
+| `estimate_co_savings_kgyear`    | `deal.propertyChange` | Yes                                | Ignored                     |
+| `estimate_sent_date`            | `deal.propertyChange` | Yes                                | Ignored                     |
+| `estimate_url`                  | `deal.propertyChange` | Yes                                | Ignored                     |
+| `flow_temperature_c`            | `deal.propertyChange` | Yes                                | Ignored                     |
+| `grant_bus`                     | `deal.propertyChange` | Yes                                | Ignored                     |
+| `heat_loss_per_m_wm`            | `deal.propertyChange` | Yes                                | Ignored                     |
+| `heat_loss_total_kw`            | `deal.propertyChange` | Yes                                | Ignored                     |
+| `hs_exchange_rate`              | `deal.propertyChange` | No                                 | Ignored                     |
+| `internal_temp_c`               | `deal.propertyChange` | Yes                                | Ignored                     |
+| `interested_in_battery`         | `deal.propertyChange` | Yes                                | Ignored                     |
+| `interested_in_heat_pump`       | `deal.propertyChange` | Yes                                | Ignored                     |
+| `pipeline`                      | `deal.propertyChange` | Yes                                | Ignored                     |
+| `preferred_days`                | `deal.propertyChange` | Yes when `callbackRequest` present | Ignored                     |
+| `preferred_times`               | `deal.propertyChange` | Yes when `callbackRequest` present | Ignored                     |
+| `price_range`                   | `deal.propertyChange` | Yes when estimate present          | Ignored                     |
+| `lower_pence`                   | `deal.propertyChange` | Yes when estimate present          | Ignored                     |
+| `upper_pence`                   | `deal.propertyChange` | Yes when estimate present          | Ignored                     |
+| `quoted_amount`                 | `deal.propertyChange` | Yes                                | Ignored                     |
+| `scop`                          | `deal.propertyChange` | Yes                                | Ignored                     |
+| `solar_deal_id`                 | `deal.propertyChange` | Yes                                | Ignored                     |
+| `spruce_job_id`                 | `deal.propertyChange` | Yes                                | Ignored                     |
+| `spruce_job_name`               | `deal.propertyChange` | Yes                                | Ignored                     |
+| `spruce_job_reference`          | `deal.propertyChange` | Yes                                | Ignored                     |
+| `spruce_lead_source_tag`        | `deal.propertyChange` | Yes                                | Ignored                     |
+| `spruce_project_type`           | `deal.propertyChange` | Yes                                | Ignored                     |
+| `system_design_cylinder`        | `deal.propertyChange` | Yes                                | Ignored                     |
+| `system_design_heat_pump_model` | `deal.propertyChange` | Yes                                | Ignored                     |
 
 Common portal-only subscriptions such as `deal_currency_code` can also be configured in HubSpot, but they are currently ignored unless a Firestore mapping is added in the webhook handler.
 
@@ -447,71 +549,71 @@ That means:
 
 When HubSpot sends `propertyName = dealstage`, the handler updates:
 
-| Firestore field | Type written | Notes |
-|---|---|---|
-| `salesStatus` | string or null | Mapped label from `HUBSPOT_DEAL_STAGE_TO_SALES_STATUS`, otherwise raw stage ID |
-| `hubspot.dealStageId` | string or null | Raw HubSpot stage ID |
-| `hubspot.salesStatusMapped` | boolean | `true` when mapping table matched |
-| `hubspot.salesStatusSyncedAt` | timestamp | Sync timestamp |
-| `hubspot.lastWebhookAt` | timestamp | Last webhook processing time |
-| `hubspot.lastWebhookError` | null or string | Cleared on success, set on write error |
-| `hubspot.lastWebhookEventId` | number or null | HubSpot event ID |
-| `updatedAt` | timestamp | Lead update timestamp |
+| Firestore field               | Type written   | Notes                                                                          |
+| ----------------------------- | -------------- | ------------------------------------------------------------------------------ |
+| `salesStatus`                 | string or null | Mapped label from `HUBSPOT_DEAL_STAGE_TO_SALES_STATUS`, otherwise raw stage ID |
+| `hubspot.dealStageId`         | string or null | Raw HubSpot stage ID                                                           |
+| `hubspot.salesStatusMapped`   | boolean        | `true` when mapping table matched                                              |
+| `hubspot.salesStatusSyncedAt` | timestamp      | Sync timestamp                                                                 |
+| `hubspot.lastWebhookAt`       | timestamp      | Last webhook processing time                                                   |
+| `hubspot.lastWebhookError`    | null or string | Cleared on success, set on write error                                         |
+| `hubspot.lastWebhookEventId`  | number or null | HubSpot event ID                                                               |
+| `updatedAt`                   | timestamp      | Lead update timestamp                                                          |
 
 ### Generic mapped HubSpot deal properties
 
 The following HubSpot deal properties are written into Firestore when received via webhook:
 
-| HubSpot property | Firestore field | Type written to Firestore |
-|---|---|---|
-| `bathrooms` | `property.bathrooms` | string or null |
-| `bedrooms` | `property.bedrooms` | string or null |
-| `floor_area_m` | `property.floorArea` | string or null |
-| `floors` | `property.floors` | string or null |
-| `latitude` | `property.lat` | string or null |
-| `longitude` | `property.lng` | string or null |
-| `property_address_line` | `property.address` | string or null |
-| `property_postcode` | `property.postcode` | string or null |
-| `property_type` | `property.propertyType` | string or null |
-| `walls` | `property.wallType` | string or null |
-| `windows` | `property.windowType` | string or null |
-| `firstname` | `customer.firstName` | string or null |
-| `lastname` | `customer.lastName` | string or null |
-| `email` | `customer.email` | string or null |
-| `phone` | `customer.phone` | string or null |
-| `lead_handing_status` | `hubspot.leadHandingStatus` | string or null |
-| `deal_handling_status` | `hubspot.dealHandlingStatus` | string or null |
-| `qualification_outcome` | `hubspot.qualificationOutcome` | string or null |
-| `likelihood_to_close` | `hubspot.likelihoodToClose` | string or null |
-| `rejection_reason` | `hubspot.rejectionReason` | string or null |
-| `closed_lost_reason` | `hubspot.closedLostReason` | string or null |
-| `closed_won_reason` | `hubspot.closedWonReason` | string or null |
-| `budget_range` | `hubspot.budgetRange` | string or null |
-| `homeowner_motivation` | `hubspot.homeownerMotivation` | string or null |
-| `hubspot_owner_id` | `hubspot.ownerId` | string or null |
-| `hubspot_owner_assigneddate` | `hubspot.ownerAssignedDate` | string or null |
-| `amount` | `hubspot.amount` | string or null |
-| `closedate` | `hubspot.closeDate` | string or null |
-| `proposal_value` | `hubspot.proposalValue` | string or null |
-| `survey_required` | `hubspot.surveyRequired` | string or null |
-| `survey_requested_date` | `hubspot.surveyRequestedDate` | string or null |
-| `survey_booked_date` | `hubspot.surveyBookedDate` | string or null |
-| `survey_booked_date_and_time` | `hubspot.surveyBookedDateAndTime` | string or null |
-| `survey_completed_date` | `hubspot.surveyCompletedDate` | string or null |
-| `proposal_requested` | `hubspot.proposalRequested` | string or null |
-| `proposal_sent_date` | `hubspot.proposalSentDate` | string or null |
-| `proposal_sent_date_b2b` | `hubspot.proposalSentDateB2b` | string or null |
-| `proposal_accepted_date` | `hubspot.proposalAcceptedDate` | string or null |
-| `proposal_viewed` | `hubspot.proposalViewed` | string or null |
-| `rate_card_requested` | `hubspot.rateCardRequested` | string or null |
-| `rate_card_sent_date` | `hubspot.rateCardSentDate` | string or null |
-| `credentials_deck_sent` | `hubspot.credentialsDeckSent` | string or null |
-| `hs_next_step` | `hubspot.nextStep` | string or null |
-| `hs_priority` | `hubspot.priority` | string or null |
-| `discovery_call_date` | `hubspot.discoveryCallDate` | string or null |
-| `intro_call_date` | `hubspot.introCallDate` | string or null |
-| `decision_maker_contact` | `hubspot.decisionMakerContact` | string or null |
-| `commercial_notes` | `hubspot.commercialNotes` | string or null |
-| `estimate_last_opened` | `hubspot.estimateLastOpened` | string or null |
-| `estimate_viewed` | `hubspot.estimateViewed` | string or null |
-| `bus_grant_eligibility` | `hubspot.busGrantEligibility` | string or null |
+| HubSpot property              | Firestore field                   | Type written to Firestore |
+| ----------------------------- | --------------------------------- | ------------------------- |
+| `bathrooms`                   | `property.bathrooms`              | string or null            |
+| `bedrooms`                    | `property.bedrooms`               | string or null            |
+| `floor_area_m`                | `property.floorArea`              | string or null            |
+| `floors`                      | `property.floors`                 | string or null            |
+| `latitude`                    | `property.lat`                    | string or null            |
+| `longitude`                   | `property.lng`                    | string or null            |
+| `property_address_line`       | `property.address`                | string or null            |
+| `property_postcode`           | `property.postcode`               | string or null            |
+| `property_type`               | `property.propertyType`           | string or null            |
+| `walls`                       | `property.wallType`               | string or null            |
+| `windows`                     | `property.windowType`             | string or null            |
+| `firstname`                   | `customer.firstName`              | string or null            |
+| `lastname`                    | `customer.lastName`               | string or null            |
+| `email`                       | `customer.email`                  | string or null            |
+| `phone`                       | `customer.phone`                  | string or null            |
+| `lead_handing_status`         | `hubspot.leadHandingStatus`       | string or null            |
+| `deal_handling_status`        | `hubspot.dealHandlingStatus`      | string or null            |
+| `qualification_outcome`       | `hubspot.qualificationOutcome`    | string or null            |
+| `likelihood_to_close`         | `hubspot.likelihoodToClose`       | string or null            |
+| `rejection_reason`            | `hubspot.rejectionReason`         | string or null            |
+| `closed_lost_reason`          | `hubspot.closedLostReason`        | string or null            |
+| `closed_won_reason`           | `hubspot.closedWonReason`         | string or null            |
+| `budget_range`                | `hubspot.budgetRange`             | string or null            |
+| `homeowner_motivation`        | `hubspot.homeownerMotivation`     | string or null            |
+| `hubspot_owner_id`            | `hubspot.ownerId`                 | string or null            |
+| `hubspot_owner_assigneddate`  | `hubspot.ownerAssignedDate`       | string or null            |
+| `amount`                      | `hubspot.amount`                  | string or null            |
+| `closedate`                   | `hubspot.closeDate`               | string or null            |
+| `proposal_value`              | `hubspot.proposalValue`           | string or null            |
+| `survey_required`             | `hubspot.surveyRequired`          | string or null            |
+| `survey_requested_date`       | `hubspot.surveyRequestedDate`     | string or null            |
+| `survey_booked_date`          | `hubspot.surveyBookedDate`        | string or null            |
+| `survey_booked_date_and_time` | `hubspot.surveyBookedDateAndTime` | string or null            |
+| `survey_completed_date`       | `hubspot.surveyCompletedDate`     | string or null            |
+| `proposal_requested`          | `hubspot.proposalRequested`       | string or null            |
+| `proposal_sent_date`          | `hubspot.proposalSentDate`        | string or null            |
+| `proposal_sent_date_b2b`      | `hubspot.proposalSentDateB2b`     | string or null            |
+| `proposal_accepted_date`      | `hubspot.proposalAcceptedDate`    | string or null            |
+| `proposal_viewed`             | `hubspot.proposalViewed`          | string or null            |
+| `rate_card_requested`         | `hubspot.rateCardRequested`       | string or null            |
+| `rate_card_sent_date`         | `hubspot.rateCardSentDate`        | string or null            |
+| `credentials_deck_sent`       | `hubspot.credentialsDeckSent`     | string or null            |
+| `hs_next_step`                | `hubspot.nextStep`                | string or null            |
+| `hs_priority`                 | `hubspot.priority`                | string or null            |
+| `discovery_call_date`         | `hubspot.discoveryCallDate`       | string or null            |
+| `intro_call_date`             | `hubspot.introCallDate`           | string or null            |
+| `decision_maker_contact`      | `hubspot.decisionMakerContact`    | string or null            |
+| `commercial_notes`            | `hubspot.commercialNotes`         | string or null            |
+| `estimate_last_opened`        | `hubspot.estimateLastOpened`      | string or null            |
+| `estimate_viewed`             | `hubspot.estimateViewed`          | string or null            |
+| `bus_grant_eligibility`       | `hubspot.busGrantEligibility`     | string or null            |
