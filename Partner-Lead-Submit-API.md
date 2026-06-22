@@ -1,6 +1,6 @@
 # Technical Specification: Partner Lead Submit API
 
-**Version:** 1.2  
+**Version:** 1.3  
 **Endpoint:** `partnerLeadSubmit`  
 **Purpose:** Accept lead submissions from partner systems via API key authentication.
 
@@ -72,7 +72,7 @@ The body must be a JSON object. Two formats are supported:
 
 ### 3.2 Required Fields
 
-These fields are mandatory. Validation fails if missing or invalid.
+These fields are mandatory. Validation fails with **HTTP 400** if missing or invalid.
 
 ```json
 {
@@ -82,12 +82,36 @@ These fields are mandatory. Validation fails if missing or invalid.
 }
 ```
 
+**Customer name alternatives:** You may send `customerFirstName` + `customerLastName` instead of `customerName`. The API builds `customerName` automatically before validation.
+
+| Semantic field | Accepted aliases                                           |
+| -------------- | ---------------------------------------------------------- |
+| First name     | `customerFirstName`, `firstName`, `first_name`             |
+| Last name      | `customerLastName`, `lastName`, `last_name`                |
+| Email          | `customerEmail`, `email`, `customer_email`                 |
+| Phone          | `customerPhone`, `phone`, `phone_number`, `customer_phone` |
+
+### 3.2.1 Required for Spruce job creation
+
+Customer fields alone are not enough to create a Spruce job. After normalization (section 3.9), the API must be able to build a complete Spruce payload including:
+
+| Field          | Widget key        | Accepted aliases                                              |
+| -------------- | ----------------- | ------------------------------------------------------------- |
+| Street address | `address`         | `formattedAddress`, `formatted_address`, or `epcData.address` |
+| Postcode       | `addressPostcode` | `postcode`, `address_postcode`, or `epcData.postcode`         |
+
+If address or postcode cannot be resolved, the API returns **HTTP 400** with `error: "Invalid Spruce payload"` and does **not** create a Firestore lead.
+
+Heat-loss enums (`windowType`, `roofInsulation`, `wallType`, etc.) may be omitted when `epcData` supplies them or when the server can apply safe defaults (see section 3.9).
+
 ### 3.3 Optional Property Fields
 
 ```json
 {
   "address": "string",
   "addressPostcode": "string",
+  "formattedAddress": "string",
+  "postcode": "string",
   "addressLat": "number",
   "addressLng": "number",
   "addressUdprn": "string",
@@ -118,6 +142,10 @@ When the property has a registered EPC, set `hasEPC` to `"yes"` and include an `
 | `epcData` | object | No       | Certificate-derived property data (see below). |
 
 The `epcData` object is stored on the lead as submitted. It supplements root-level property fields (section 3.3) when those are absent and informs Spruce job creation and heat-loss estimates.
+
+When using the **wrapped format** (section 3.6), you may place `epcData` and `hasEPC` at the request root while customer/property fields live under `data`. Root-level EPC fields are merged onto `data` before processing (INS-856).
+
+**EPC fabric U-values:** When certificate lines use thermal transmittance text (e.g. `"Average thermal transmittance 0.29 W/m2K"`), the API sends Spruce `*_u_value` fields and uses placeholder enums where keyword-based fabric types are unavailable. Partners do not need to send separate `windowType` / `roofInsulation` values in that case.
 
 #### 3.4.1 Recommended fields
 
@@ -334,6 +362,38 @@ These fields are optional and are persisted on the lead under `ecs`, then echoed
 
 `metadata` must be a JSON object if provided.
 
+### 3.9 Server-side payload normalization (before Spruce)
+
+Before Spruce job creation, the API normalizes partner payloads onto the widget field names used internally. This reduces failures when partners send ECS-style or certificate-first payloads.
+
+| Widget field                | Filled from (in order)                                                   |
+| --------------------------- | ------------------------------------------------------------------------ |
+| `customerName`              | Existing value, or `customerFirstName` + `customerLastName`              |
+| `address`                   | `address`, `formattedAddress`, `formatted_address`, `epcData.address`    |
+| `addressPostcode`           | `addressPostcode`, `postcode`, `address_postcode`, `epcData.postcode`    |
+| `addressLat` / `addressLng` | `addressLat` / `addressLng`, `lat` / `lng`, `latitude` / `longitude`     |
+| `addressUdprn`              | `addressUdprn`, `udprn`                                                  |
+| `propertyType`              | Root value, then `epcData.propertyType`                                  |
+| `propertyDescription`       | Root value, then `epcData.builtForm`                                     |
+| `floorArea`                 | Root value, then `epcData.floorArea`                                     |
+| `bedrooms`                  | Root value, then `epcData.numberOfHabitableRooms`                        |
+| `fuelType`                  | Root value, then `epcData.fuelType`                                      |
+| `windowType`                | Root value, then `epcData.windowType`                                    |
+| `roofInsulation`            | Root value, then `epcData.roofInsulation`, then `epcData.loftInsulation` |
+| `wallType`                  | Root value, then `epcData.wallConstruction`                              |
+
+**Spruce enum mapping and defaults**
+
+| Partner / widget value                      | Spruce job field                      | Notes                                                                        |
+| ------------------------------------------- | ------------------------------------- | ---------------------------------------------------------------------------- |
+| `double_glazed`, `double`, `double_glazing` | `window_type: double_glazing`         | Widget aliases are mapped server-side                                        |
+| `single_glazed`, `triple_glazed`, etc.      | `single_glazing`, `triple_glazing`, … | See section 4.7                                                              |
+| `roofInsulation` / `loftInsulation`         | `loft_insulation`                     | Mapped to Spruce enum; default `100mm` when still missing                    |
+| —                                           | `window_type`                         | Default `double_glazing` when still missing after EPC mapping                |
+| —                                           | `wall_type`                           | Default `solid_brick_unknown` when still missing after EPC / U-value mapping |
+
+The API validates the final Spruce payload **before** writing the lead. Invalid payloads return **HTTP 400** with a message such as `Missing required fields: address` (see section 6.4).
+
 ---
 
 ## 4. Field Value Specifications (Enums)
@@ -419,7 +479,7 @@ Maps to Spruce: `*_internal_insulation`, `*_external_insulation`, `*_uninsulated
 ]
 ```
 
-Default when omitted: `double_glazing`.
+Widget values such as `double_glazed` are accepted and mapped to Spruce `double_glazing` on the server. Default when omitted (after normalization and EPC mapping): `double_glazing`.
 
 ### 4.8 roofInsulation
 
@@ -427,7 +487,7 @@ Default when omitted: `double_glazing`.
 ["none", "50mm", "100mm", "150mm", "200mm", "250mm_plus", "250+mm"]
 ```
 
-Default when omitted: `100mm`.
+`epcData.loftInsulation` is treated as an alias of `roofInsulation` when the root field is omitted. Default when omitted (after normalization and EPC mapping): `100mm` (`loft_insulation` on the Spruce job).
 
 ### 4.9 floorAreaUnit
 
@@ -447,7 +507,9 @@ Default: `sqm`.
 
 ## 5. Request Examples
 
-### 5.1 Minimal (required fields only)
+### 5.1 Minimal (required customer fields only)
+
+This passes customer validation but **fails Spruce pre-validation** unless `address` / `addressPostcode` (or `epcData.address` / `epcData.postcode`) are also supplied:
 
 ```json
 {
@@ -572,7 +634,42 @@ Default: `sqm`.
 }
 ```
 
-### 5.4 ECS single-call create job + callback (recommended)
+### 5.4 EPC-first payload (address and fabric from certificate)
+
+Use when ECS sends certificate data at the root and customer fields under `data`:
+
+```json
+{
+  "data": {
+    "customerFirstName": "Angeliki",
+    "customerLastName": "Xifara",
+    "customerEmail": "axifara@ridge.co.uk",
+    "customerPhone": "+447564042048",
+    "propertyType": "house",
+    "propertyDescription": "semi_detached",
+    "bedrooms": 4,
+    "floorArea": 78
+  },
+  "hasEPC": "yes",
+  "epcData": {
+    "epcCertificateNumber": "8584-7735-2190-5474-7996",
+    "postcode": "OX2 9FU",
+    "address": "16 Ruskin Close",
+    "wallsDescription": "Average thermal transmittance 0.29 W/m2K",
+    "roofDescription": "Average thermal transmittance 0.16 W/m2K",
+    "wallUValue": 0.29,
+    "roofUValue": 0.16,
+    "fuelType": "mains_gas",
+    "propertyType": "house",
+    "builtForm": "semi_detached",
+    "floorArea": 78
+  }
+}
+```
+
+The API copies `epcData.address` / `epcData.postcode` onto the widget fields, maps fabric U-values for Spruce, and applies placeholder `window_type` / `loft_insulation` enums when certificate lines use thermal transmittance text.
+
+### 5.5 ECS single-call create job + callback (recommended)
 
 ```json
 {
@@ -884,6 +981,35 @@ Exact nested keys can evolve as integrations add fields (for example under `spru
 
 ### 6.4 Error (HTTP 4xx, 5xx)
 
+**Customer validation (HTTP 400)**
+
+```json
+{
+  "success": false,
+  "error": "Name is required, Email is required"
+}
+```
+
+**Invalid Spruce payload (HTTP 400)** — returned before a lead is created when address, postcode, or other required Spruce job fields cannot be resolved after normalization:
+
+```json
+{
+  "success": false,
+  "error": "Invalid Spruce payload",
+  "message": "Missing required fields: address, postcode",
+  "sprucePayload": {
+    "address": "",
+    "postcode": "",
+    "window_type": "double_glazing",
+    "loft_insulation": "100mm"
+  }
+}
+```
+
+Use `message` and `sprucePayload` to see which fields are still missing or what the server would have sent to Spruce.
+
+**Other errors**
+
 ```json
 {
   "success": false,
@@ -891,18 +1017,20 @@ Exact nested keys can evolve as integrations add fields (for example under `spru
 }
 ```
 
+When the lead **is** created but Spruce job creation fails, HTTP **200** is still returned with `spruce.status: "pending"`, `spruce.error` set, and `spruce.retryable` indicating whether a server-side retry may help.
+
 ### 6.5 HTTP Status Codes
 
 ```json
 {
-  "200": "Success",
-  "400": "Invalid JSON, missing payload, or validation errors (name/email/phone)",
+  "200": "Success (lead created; check spruce.status for job outcome)",
+  "400": "Invalid JSON, missing payload, customer validation errors, or invalid Spruce payload (address/postcode/fabric)",
   "401": "Missing or invalid API key, or key disabled",
   "403": "Partner disabled, or partnerId in body does not match key",
   "404": "Partner not found",
   "405": "Method not allowed (only POST accepted)",
   "429": "Rate limit exceeded (hour or day)",
-  "500": "Internal server error"
+  "500": "Internal server error or Spruce API key not configured"
 }
 ```
 
@@ -925,13 +1053,17 @@ Limits are configured per partner or per API key. When exceeded, the API returns
 
 1. Validate HTTP method (POST only)
 2. Authenticate via `Authorization` header
-3. Load partner config; verify partner exists and is enabled
-4. Check rate limits
-5. Validate required customer fields
-6. Normalize optional `callbackRequest` (single-call create job + callback flow)
-7. Normalize optional ECS metadata (`ecs` / root aliases)
-8. Create lead document in Firestore
-9. Submit to Spruce Create Job API
-10. Calculate estimate via Spruce Estimates API
-11. Update lead with Spruce and estimate results
-12. Return response
+3. Extract widget fields (`extractWidgetData` — merges root EPC fields onto wrapped `data`)
+4. Normalize partner payload (`normalizePartnerLeadWidgetData` — section 3.9)
+5. Load partner config; verify partner exists and is enabled
+6. Check rate limits
+7. Validate required customer fields
+8. Normalize optional `callbackRequest` (single-call create job + callback flow)
+9. Normalize optional ECS metadata (`ecs` / root aliases)
+10. Resolve and enrich `epcData` (fabric U-values, certificate identifiers)
+11. **Validate Spruce job payload** — return **HTTP 400** if address/postcode or required heat-loss fields cannot be built
+12. Create lead document in Firestore
+13. Submit to Spruce Create Job API (`POST /v1/jobs`)
+14. Calculate estimate via Spruce Estimates API (`POST /v1/estimates`)
+15. Update lead with Spruce and estimate results
+16. Return response (HubSpot sync runs asynchronously via Firestore trigger after Spruce completes)
