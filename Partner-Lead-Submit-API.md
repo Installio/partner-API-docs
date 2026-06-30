@@ -384,13 +384,19 @@ Before Spruce job creation, the API normalizes partner payloads onto the widget 
 
 **Spruce enum mapping and defaults**
 
-| Partner / widget value                      | Spruce job field                      | Notes                                                                        |
-| ------------------------------------------- | ------------------------------------- | ---------------------------------------------------------------------------- |
-| `double_glazed`, `double`, `double_glazing` | `window_type: double_glazing`         | Widget aliases are mapped server-side                                        |
-| `single_glazed`, `triple_glazed`, etc.      | `single_glazing`, `triple_glazing`, … | See section 4.7                                                              |
-| `roofInsulation` / `loftInsulation`         | `loft_insulation`                     | Mapped to Spruce enum; default `100mm` when still missing                    |
-| —                                           | `window_type`                         | Default `double_glazing` when still missing after EPC mapping                |
-| —                                           | `wall_type`                           | Default `solid_brick_unknown` when still missing after EPC / U-value mapping |
+| Partner / widget value                      | Spruce job field                      | Notes                                                                                                                                                               |
+| ------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `double_glazed`, `double`, `double_glazing` | `window_type: double_glazing`         | Widget aliases are mapped server-side                                                                                                                               |
+| `single_glazed`, `triple_glazed`, etc.      | `single_glazing`, `triple_glazing`, … | See section 4.7                                                                                                                                                     |
+| `roofInsulation` / `loftInsulation`         | `loft_insulation`                     | Mapped to Spruce enum; default `100mm` when still missing (including when EPC supplies no usable value)                                                             |
+| `epcData.fuelType`                          | `fuel_type`                           | Only passed through as-is when it is already one of the 6 Spruce enum values; otherwise re-mapped via `epcData.mainFuel` or `fuelType`, falling back to `mains_gas` |
+| —                                           | `window_type`                         | Default `double_glazing` when still missing after EPC mapping (including thermal-transmittance EPC lines)                                                           |
+| —                                           | `wall_type`                           | Default `solid_brick_unknown` when still missing after EPC / U-value mapping                                                                                        |
+| `addressUdprn` / `udprn`                    | `udprn`                               | Always coerced to a string before sending to Spruce, regardless of the type received                                                                                |
+| `addressPostcode` / `postcode`              | `postcode`                            | Whitespace is collapsed to a single space and the value is uppercased to satisfy Spruce's postcode pattern                                                          |
+| `bedrooms`                                  | `num_bedrooms`                        | `0` is treated as a valid value (not as "missing"); falls back to `epcData.numberOfHabitableRooms`, then `3`, only when no valid number is supplied                 |
+
+Spruce also validates `customer_email` against a stricter pattern than the partner-facing check in section 3.2 (no leading dot, no consecutive dots, valid domain). A value that passes the partner-facing regex but fails Spruce's pattern is rejected with **HTTP 400** / `Invalid Spruce payload` before a lead is created (see section 6.4).
 
 The API validates the final Spruce payload **before** writing the lead. Invalid payloads return **HTTP 400** with a message such as `Missing required fields: address` (see section 6.4).
 
