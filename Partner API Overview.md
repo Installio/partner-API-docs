@@ -51,17 +51,14 @@ Behavior:
 
 ## 3. Endpoint catalog
 
-| Endpoint                    | Method(s)         | Purpose                                                                              | Details                                                                                         |
-| --------------------------- | ----------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
-| `/partnerLeadSubmit`        | `POST`            | Full lead flow: create lead, request estimate, submit to Spruce, downstream CRM sync | [partnerLeadSubmit.md](https://gist.github.com/tigranelyazyan/6f13bb06ca76019280e01d5edb419c2b) |
-| `/updateLeadCustomer`       | `PATCH`           | Update customer name, email, phone on an existing lead; sync HubSpot when applicable | [updateLeadCustomer.md](./updateLeadCustomer.md)                                                |
-| `/partnerEstimateSubmit`    | `POST`            | Heat pump estimate only (no Spruce job / HubSpot create)                             | partnerEstimateSubmit.md (TBD)                                                                  |
-
-<!-- TODO(docs): The link `./partnerEstimateSubmit.md` referenced above is broken — no such file exists in this repo. Add the partnerEstimateSubmit reference document, or replace this reference with the correct external/internal URL. -->
-
-| `onProjectJobStatusWebhook` | Firestore trigger | OMS -> Partner webhook                                                               | Sends `job.status_changed` updates to partner `webhookUrl`                                      |
-| `onLeadHubSpotPush`         | Firestore trigger | OMS -> HubSpot sync                                                                  | [HubSpot sync docs](https://gist.github.com/tigranelyazyan/0bfad64d3305fe90824d352e029bd5b0)    |
-| `hubspotWebhook`            | HTTPS endpoint    | HubSpot -> OMS sync                                                                  | [HubSpot sync docs](https://gist.github.com/tigranelyazyan/0bfad64d3305fe90824d352e029bd5b0)    |
+| Endpoint                    | Method(s)         | Purpose                                                                                            | Details                                                                                         |
+| --------------------------- | ----------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `/partnerLeadSubmit`        | `POST`            | Full lead flow: heat (Spruce + estimate) or solar (`leadType=solar` → OpenSolar + HubSpot solar pipeline) | [Partner-Lead-Submit-API.md](./Partner-Lead-Submit-API.md) |
+| `/updateLeadCustomer`       | `PATCH`           | Update customer contact and/or `callbackRequest` on an existing lead; sync HubSpot when applicable | [updateLeadCustomer.md](./updateLeadCustomer.md)                                                |
+| `/partnerEstimateSubmit`    | `POST`            | Heat pump estimate only (no Spruce job / HubSpot create)                                           | [partnerEstimateSubmit.md](./partnerEstimateSubmit.md)                                          |
+| `onProjectJobStatusWebhook` | Firestore trigger | OMS -> Partner webhook                                                                             | Sends `job.status_changed` updates to partner `webhookUrl`                                      |
+| `onLeadHubSpotPush`         | Firestore trigger | OMS -> HubSpot sync                                                                                | [HubSpot sync docs](https://gist.github.com/tigranelyazyan/0bfad64d3305fe90824d352e029bd5b0)    |
+| `hubspotWebhook`            | HTTPS endpoint    | HubSpot -> OMS sync                                                                                | [HubSpot sync docs](https://gist.github.com/tigranelyazyan/0bfad64d3305fe90824d352e029bd5b0)    |
 
 ---
 
@@ -89,16 +86,16 @@ Delivery to partner `webhookUrl`:
 
 ## 4.2 Lead submission endpoint
 
-- Use `partnerLeadSubmit` when you need the full lead pipeline (Spruce job submission and downstream CRM processing).
+- Use `partnerLeadSubmit` when you need the full lead pipeline (Spruce job submission and downstream CRM processing for **heat**, or OpenSolar + HubSpot **solar** pipeline when `leadType`/`projectType` is `solar`).
 - This endpoint requires partner API key auth.
 - It supports direct or wrapped payload (`data`) formats.
 - It applies the same partner rate limits.
-- EPC identifier note: use certificate number/RRN (`epcData.epcCertificateNumber`).
-- Full payload and response spec: [partnerLeadSubmit.md](https://gist.github.com/tigranelyazyan/6f13bb06ca76019280e01d5edb419c2b)
+- EPC identifier note: use certificate number/RRN (`epcData.epcCertificateNumber`) for heat leads.
+- Full payload and response spec: [Partner-Lead-Submit-API.md](./Partner-Lead-Submit-API.md)
 
 ## 4.2.1 Lead contact update endpoint
 
-- Use `updateLeadCustomer` when you already have a `leadId` and need to change **customer** name, email, or phone.
+- Use `updateLeadCustomer` when you already have a `leadId` and need to change **customer** name, email, phone, and/or **callback** preferences.
 - **Method:** `PATCH` only.
 - Requires the same partner API key; the lead must belong to the authenticated partner.
 - Updates Firestore `customer` on the lead; if the lead was previously pushed to HubSpot (`hubspot.status === "submitted"`), HubSpot contact and deal are updated in the same request.

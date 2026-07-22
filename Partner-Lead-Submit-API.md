@@ -1,16 +1,20 @@
 # Technical Specification: Partner Lead Submit API
 
-**Version:** 1.3  
+**Version:** 1.4  
 **Endpoint:** `partnerLeadSubmit`  
-**Purpose:** Accept lead submissions from partner systems via API key authentication.
+**Purpose:** Accept lead submissions from partner systems via API key authentication (heat pump and solar).
 
-**Also see:** [Partner API overview](./PARTNER_API.md) (environments, auth, rate limits, errors, endpoint choice). To update customer contact details on an existing lead, use [Update Lead Customer](./updateLeadCustomer.md).
+**Also see:** [Partner API overview](./Partner%20API%20Overview.md) (environments, auth, rate limits, errors, endpoint choice). To update customer contact details on an existing lead, use [Update Lead Customer](./updateLeadCustomer.md).
 
 ---
 
 ## 1. Overview
 
-The Partner Lead Submit API lets you submit leads from your own systems—CRMs, websites, or internal tools—without embedding the widget. Send customer and property details in a single request and receive a lead ID, heat-loss estimate, and job reference.
+The Partner Lead Submit API lets you submit leads from your own systems—CRMs, websites, or internal tools—without embedding the widget.
+
+**Heat pump leads** (default): send customer and property details in a single request and receive a lead ID, heat-loss estimate, and Spruce job reference. HubSpot sync runs after Spruce completes.
+
+**Solar leads** (INS-953): set `leadType` / `lead_type` / `projectType` to `solar`. The API creates an OMS solar lead, skips Spruce, optionally links or creates an OpenSolar project, and routes the deal to the **HubSpot solar pipeline**.
 
 The same request can also include an optional `callbackRequest` object. This supports the ECS single-call flow where job creation and callback preferences are submitted together instead of as two separate requests.
 
@@ -18,7 +22,7 @@ The same request can also include an optional `callbackRequest` object. This sup
 
 **Authentication:** Each request requires a partner API key in the `Authorization` header. Keys are issued per partner—contact your administrator to obtain one.
 
-**Response:** On success, you receive a unique lead ID, Spruce job details (UUID, URL, reference), and an optional heat-loss estimate. Use the lead ID to track or retrieve the lead later.
+**Response:** On success, you receive a unique lead ID. Heat responses include Spruce job details and an optional heat-loss estimate. Solar responses include `leadType: "solar"`, OpenSolar status/URL, and skip Spruce.
 
 ---
 
@@ -72,7 +76,7 @@ The body must be a JSON object. Two formats are supported:
 
 ### 3.2 Required Fields
 
-These fields are mandatory. Validation fails with **HTTP 400** if missing or invalid.
+These fields are mandatory for **heat pump** leads (default). Validation fails with **HTTP 400** if missing or invalid.
 
 ```json
 {
@@ -90,6 +94,26 @@ These fields are mandatory. Validation fails with **HTTP 400** if missing or inv
 | Last name      | `customerLastName`, `lastName`, `last_name`                |
 | Email          | `customerEmail`, `email`, `customer_email`                 |
 | Phone          | `customerPhone`, `phone`, `phone_number`, `customer_phone` |
+
+### 3.2.0 Lead type (`heat` vs `solar`)
+
+Omit the lead-type field (or send a heat value such as `heat_pump`) for the existing heat-pump flow.
+
+To submit a **solar** lead, set one of:
+
+| Field          | Solar values                                      |
+| -------------- | ------------------------------------------------- |
+| `leadType`     | `solar`                                           |
+| `lead_type`    | `solar`                                           |
+| `projectType`  | `solar`, `pv`, `solar_pv`                         |
+| `project_type` | `solar`, `pv`, `solar_pv`                         |
+
+Solar leads:
+
+- Skip Spruce job creation and heat-loss estimates
+- Persist `lead_type: "solar"` on the OMS lead
+- Sync to HubSpot on the **solar** deal pipeline (New Lead stage)
+- Use the solar required/optional field rules in section **3.10**
 
 ### 3.2.1 Required for Spruce job creation
 
@@ -400,6 +424,119 @@ Before Spruce job creation, the API normalizes partner payloads onto the widget 
 Spruce also validates `customer_email` against a stricter pattern than the partner-facing check in section 3.2 (no leading dot, no consecutive dots, valid domain). A value that passes the partner-facing regex but fails Spruce's pattern is rejected with **HTTP 400** / `Invalid Spruce payload` before a lead is created (see section 6.4).
 
 The API validates the final Spruce payload **before** writing the lead. Invalid payloads return **HTTP 400** with a message such as `Missing required fields: address` (see section 6.4).
+
+### 3.10 Solar leads (INS-953)
+
+Set `leadType` / `lead_type` / `projectType` to `solar` (see section 3.2.0). Solar submissions do **not** require phone, postcode, EPC fabric fields, or Spruce prerequisites.
+
+#### Mandatory
+
+| Semantic field | Accepted aliases                                           |
+| -------------- | ---------------------------------------------------------- |
+| First name     | `customerFirstName`, `firstName`, `first_name`             |
+| Last name      | `customerLastName`, `lastName`, `last_name`                |
+| Email          | `customerEmail`, `email`, `customer_email`                 |
+| Address        | `address`, `formattedAddress`, `formatted_address`         |
+
+`customerName` alone is accepted as a fallback when first/last are omitted.
+
+#### Optional (existing)
+
+| Semantic field   | Accepted aliases                                                                 | Notes                                      |
+| ---------------- | -------------------------------------------------------------------------------- | ------------------------------------------ |
+| Phone            | `customerPhone`, `phone`, `phone_number`, `customer_phone`                       | Optional for solar                         |
+| Property tenure  | `tenure`, `propertyTenure`, `property_tenure`                                    | e.g. `owned` / homeowner                   |
+| Property type    | `propertyType`, `property_type`, `propertyDescription`, `builtForm`, `built_form` | e.g. `detached`, `semi_detached`, `house` |
+
+Built-form values such as `detached` are stored on `propertyDescription`. Values `house` / `flat` / `bungalow` map to `propertyType`.
+
+#### Optional (solar-specific)
+
+| Semantic field            | Accepted aliases / shape                                                                                          | Type                         |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| Annual electrical spend   | `annualElectricalSpend`, `annual_electrical_spend`, `annualElectricalSpendGbp`, `annual_electrical_spend_pence` | number (commas allowed)      |
+| Spend unit                | `annualElectricalSpendUnit`, `annual_electrical_spend_unit` (`gbp` \| `pence`)                                    | string                       |
+| Tariff                    | `tariff` object (see below) or flat `export_pence_per_kwh` / `import_pence_per_kwh` / `standing_charge_cents_per_day` | object                    |
+| Panel count               | `panelCount`, `panel_count`, `panels`                                                                             | whole non-negative integer   |
+| OpenSolar URL             | `openSolarUrl`, `open_solar_url`, `opensolar_url`                                                                 | http(s) URL                  |
+| Partner job reference     | `partnerJobReference`, `partner_job_reference`, `partnerJobRef`, `externalJobReference`                           | string                       |
+
+**Tariff object**
+
+```json
+{
+  "tariff": {
+    "name": "string",
+    "export_pence_per_kwh": 15,
+    "import_pence_per_kwh": 28.5,
+    "standing_charge_cents_per_day": 48.2
+  }
+}
+```
+
+CamelCase keys inside `tariff` are also accepted (`exportPencePerKwh`, etc.).
+
+These fields are persisted on the lead under `solar` (and `integrations.openSolar.url` when an OpenSolar URL is supplied). When `openSolarUrl` is provided, the API stores it and does **not** call OpenSolar to create a project. When omitted, the API attempts OpenSolar project creation if geo/postcode are present and OpenSolar is configured; HubSpot sync still proceeds if OpenSolar is skipped or fails.
+
+#### Example (solar / ECS)
+
+```json
+{
+  "leadType": "solar",
+  "first_name": "Jane",
+  "last_name": "Smith",
+  "email": "jane.smith@example.com",
+  "phone": "07123456789",
+  "address": "123 High Street, London",
+  "tenure": "owned",
+  "property_type": "detached",
+  "annual_electrical_spend": "1,276.25",
+  "annual_electrical_spend_unit": "gbp",
+  "panel_count": 12,
+  "tariff": {
+    "name": "Octopus Outgoing",
+    "export_pence_per_kwh": 15,
+    "import_pence_per_kwh": 28.5,
+    "standing_charge_cents_per_day": 48.2
+  },
+  "open_solar_url": "https://app.opensolar.com/#/projects/12345",
+  "partner_job_reference": "ECS-SOLAR-001",
+  "ecs": {
+    "externalId": "ecs-solar-001",
+    "correlationId": "550e8400-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+#### Solar success response extras
+
+```json
+{
+  "success": true,
+  "leadType": "solar",
+  "spruce": {
+    "status": "skipped",
+    "message": "Solar leads do not use Spruce"
+  },
+  "openSolar": {
+    "status": "submitted | skipped | failed | pending_retry",
+    "projectId": "string | null",
+    "url": "string | null",
+    "error": "string | null"
+  },
+  "solar": {
+    "annualElectricalSpend": 1276.25,
+    "annualElectricalSpendUnit": "gbp",
+    "tariff": { },
+    "panelCount": 12,
+    "partnerJobReference": "ECS-SOLAR-001"
+  },
+  "hubspot": {
+    "status": "pending",
+    "message": "HubSpot sync runs via Firestore after OpenSolar (solar pipeline)"
+  }
+}
+```
 
 ---
 
