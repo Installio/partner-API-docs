@@ -99,12 +99,12 @@ These fields are mandatory for **heat pump** leads. Validation fails with **HTTP
 
 `leadType` (or an alias below) is **required** on every request. There is **no default** — omitting it returns **HTTP 400**. Existing heat integrations (including ECS) must send an explicit heat value.
 
-| Field          | Heat values                         | Solar values                              |
-| -------------- | ----------------------------------- | ----------------------------------------- |
-| `leadType`     | `heat`, `heat_pump`                 | `solar`                                   |
-| `lead_type`    | `heat`, `heat_pump`                 | `solar`                                   |
-| `projectType`  | `heat`, `heat_pump`, `ashp`, `hp`   | `solar`, `pv`, `solar_pv`                 |
-| `project_type` | `heat`, `heat_pump`, `ashp`, `hp`   | `solar`, `pv`, `solar_pv`                 |
+| Field          | Heat values                       | Solar values              |
+| -------------- | --------------------------------- | ------------------------- |
+| `leadType`     | `heat`, `heat_pump`               | `solar`                   |
+| `lead_type`    | `heat`, `heat_pump`               | `solar`                   |
+| `projectType`  | `heat`, `heat_pump`, `ashp`, `hp` | `solar`, `pv`, `solar_pv` |
+| `project_type` | `heat`, `heat_pump`, `ashp`, `hp` | `solar`, `pv`, `solar_pv` |
 
 Solar leads:
 
@@ -118,6 +118,7 @@ Heat leads:
 - Persist `lead_type: "heat"` on the OMS lead
 - Create a Spruce job and run the heat-loss estimate flow
 - Sync to HubSpot on the **heat** deal pipeline after Spruce completes
+
 ### 3.2.1 Required for Spruce job creation
 
 Customer fields alone are not enough to create a Spruce job. After normalization (section 3.9), the API must be able to build a complete Spruce payload including:
@@ -434,35 +435,35 @@ Set `leadType` / `lead_type` / `projectType` to `solar` (see section 3.2.0). Sol
 
 #### Mandatory
 
-| Semantic field | Accepted aliases                                           |
-| -------------- | ---------------------------------------------------------- |
-| First name     | `customerFirstName`, `firstName`, `first_name`             |
-| Last name      | `customerLastName`, `lastName`, `last_name`                |
-| Email          | `customerEmail`, `email`, `customer_email`                 |
-| Address        | `address`, `formattedAddress`, `formatted_address`         |
+| Semantic field | Accepted aliases                                   |
+| -------------- | -------------------------------------------------- |
+| First name     | `customerFirstName`, `firstName`, `first_name`     |
+| Last name      | `customerLastName`, `lastName`, `last_name`        |
+| Email          | `customerEmail`, `email`, `customer_email`         |
+| Address        | `address`, `formattedAddress`, `formatted_address` |
 
 `customerName` alone is accepted as a fallback when first/last are omitted.
 
 #### Optional (existing)
 
-| Semantic field   | Accepted aliases                                                                 | Notes                                      |
-| ---------------- | -------------------------------------------------------------------------------- | ------------------------------------------ |
-| Phone            | `customerPhone`, `phone`, `phone_number`, `customer_phone`                       | Optional for solar                         |
-| Property tenure  | `tenure`, `propertyTenure`, `property_tenure`                                    | e.g. `owned` / homeowner                   |
-| Property type    | `propertyType`, `property_type`, `propertyDescription`, `builtForm`, `built_form` | e.g. `detached`, `semi_detached`, `house` |
+| Semantic field  | Accepted aliases                                                                  | Notes                                     |
+| --------------- | --------------------------------------------------------------------------------- | ----------------------------------------- |
+| Phone           | `customerPhone`, `phone`, `phone_number`, `customer_phone`                        | Optional for solar                        |
+| Property tenure | `tenure`, `propertyTenure`, `property_tenure`                                     | e.g. `owned` / homeowner                  |
+| Property type   | `propertyType`, `property_type`, `propertyDescription`, `builtForm`, `built_form` | e.g. `detached`, `semi_detached`, `house` |
 
 Built-form values such as `detached` are stored on `propertyDescription`. Values `house` / `flat` / `bungalow` map to `propertyType`.
 
 #### Optional (solar-specific)
 
-| Semantic field            | Accepted aliases / shape                                                                                          | Type                         |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| Annual electrical spend   | `annualElectricalSpend`, `annual_electrical_spend`, `annualElectricalSpendGbp`, `annual_electrical_spend_pence` | number (commas allowed)      |
-| Spend unit                | `annualElectricalSpendUnit`, `annual_electrical_spend_unit` (`gbp` \| `pence`)                                    | string                       |
-| Tariff                    | `tariff` object (see below) or flat `export_pence_per_kwh` / `import_pence_per_kwh` / `standing_charge_cents_per_day` | object                    |
-| Panel count               | `panelCount`, `panel_count`, `panels`                                                                             | whole non-negative integer   |
-| OpenSolar URL             | `openSolarUrl`, `open_solar_url`, `opensolar_url`                                                                 | http(s) URL                  |
-| Partner job reference     | `partnerJobReference`, `partner_job_reference`, `partnerJobRef`, `externalJobReference`                           | string                       |
+| Semantic field          | Accepted aliases / shape                                                                                              | Type                       |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| Annual electrical spend | `annualElectricalSpend`, `annual_electrical_spend`, `annualElectricalSpendGbp`, `annual_electrical_spend_pence`       | number (commas allowed)    |
+| Spend unit              | `annualElectricalSpendUnit`, `annual_electrical_spend_unit` (`gbp` \| `pence`)                                        | string                     |
+| Tariff                  | `tariff` object (see below) or flat `export_pence_per_kwh` / `import_pence_per_kwh` / `standing_charge_cents_per_day` | object                     |
+| Panel count             | `panelCount`, `panel_count`, `panels`                                                                                 | whole non-negative integer |
+| OpenSolar URL           | `openSolarUrl`, `open_solar_url`, `opensolar_url`                                                                     | http(s) URL                |
+| Partner job reference   | `partnerJobReference`, `partner_job_reference`, `partnerJobRef`, `externalJobReference`                               | string                     |
 
 **Tariff object**
 
@@ -531,7 +532,7 @@ These fields are persisted on the lead under `solar` (and `integrations.openSola
   "solar": {
     "annualElectricalSpend": 1276.25,
     "annualElectricalSpendUnit": "gbp",
-    "tariff": { },
+    "tariff": {},
     "panelCount": 12,
     "partnerJobReference": "ECS-SOLAR-001"
   },
@@ -1143,6 +1144,16 @@ Exact nested keys can evolve as integrations add fields (for example under `spru
 }
 ```
 
+**Missing / invalid lead type (HTTP 400)** — `leadType` (or `lead_type` / `projectType` / `project_type`) is required on every request:
+
+```json
+{
+  "success": false,
+  "error": "leadType is required (use \"heat\" or \"solar\"; aliases: lead_type, projectType, project_type)",
+  "message": "Provide leadType as \"heat\" or \"solar\" (aliases: lead_type, projectType, project_type). Existing heat integrations must send an explicit heat value."
+}
+```
+
 **Invalid Spruce payload (HTTP 400)** — returned before a lead is created when address, postcode, or other required Spruce job fields cannot be resolved after normalization:
 
 ```json
@@ -1210,13 +1221,8 @@ Limits are configured per partner or per API key. When exceeded, the API returns
 4. Normalize partner payload (`normalizePartnerLeadWidgetData` — section 3.9)
 5. Load partner config; verify partner exists and is enabled
 6. Check rate limits
-7. Validate required customer fields
+7. **Resolve `leadType`** — return **HTTP 400** if missing/invalid (`heat` or `solar`; see section 3.2.0)
 8. Normalize optional `callbackRequest` (single-call create job + callback flow)
 9. Normalize optional ECS metadata (`ecs` / root aliases)
-10. Resolve and enrich `epcData` (fabric U-values, certificate identifiers)
-11. **Validate Spruce job payload** — return **HTTP 400** if address/postcode or required heat-loss fields cannot be built
-12. Create lead document in Firestore
-13. Submit to Spruce Create Job API (`POST /v1/jobs`)
-14. Calculate estimate via Spruce Estimates API (`POST /v1/estimates`)
-15. Update lead with Spruce and estimate results
-16. Return response (HubSpot sync runs asynchronously via Firestore trigger after Spruce completes)
+10. **If `leadType=solar`:** validate solar fields → create OMS solar lead → link/create OpenSolar (URL not returned) → return response (HubSpot solar pipeline via Firestore trigger)
+11. **If `leadType=heat`:** validate required customer fields → resolve/enrich `epcData` → **validate Spruce job payload** (HTTP 400 if address/postcode missing) → create lead → Spruce job + estimate → return response (HubSpot heat pipeline via Firestore trigger after Spruce)
