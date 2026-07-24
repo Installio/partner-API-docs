@@ -1,6 +1,6 @@
 # Technical Specification: Partner Lead Submit API
 
-**Version:** 1.4  
+**Version:** 1.5  
 **Endpoint:** `partnerLeadSubmit`  
 **Purpose:** Accept lead submissions from partner systems via API key authentication (heat pump and solar).
 
@@ -12,7 +12,7 @@
 
 The Partner Lead Submit API lets you submit leads from your own systems—CRMs, websites, or internal tools—without embedding the widget.
 
-**Heat pump leads** (default): send customer and property details in a single request and receive a lead ID, heat-loss estimate, and Spruce job reference. HubSpot sync runs after Spruce completes.
+**Heat pump leads:** set `leadType` / `lead_type` / `projectType` to `heat` (or `heat_pump`). Send customer and property details in a single request and receive a lead ID, heat-loss estimate, and Spruce job reference. HubSpot sync runs after Spruce completes.
 
 **Solar leads** (INS-953): set `leadType` / `lead_type` / `projectType` to `solar`. The API creates an OMS solar lead, skips Spruce, optionally links or creates an OpenSolar project, and routes the deal to the **HubSpot solar pipeline**.
 
@@ -22,7 +22,7 @@ The same request can also include an optional `callbackRequest` object. This sup
 
 **Authentication:** Each request requires a partner API key in the `Authorization` header. Keys are issued per partner—contact your administrator to obtain one.
 
-**Response:** On success, you receive a unique lead ID. Heat responses include Spruce job details and an optional heat-loss estimate. Solar responses include `leadType: "solar"`, OpenSolar status/URL, and skip Spruce.
+**Response:** On success, you receive a unique lead ID. Heat responses include Spruce job details and an optional heat-loss estimate. Solar responses include `leadType: "solar"`, OpenSolar status (without URL), and skip Spruce.
 
 ---
 
@@ -76,7 +76,7 @@ The body must be a JSON object. Two formats are supported:
 
 ### 3.2 Required Fields
 
-These fields are mandatory for **heat pump** leads (default). Validation fails with **HTTP 400** if missing or invalid.
+These fields are mandatory for **heat pump** leads. Validation fails with **HTTP 400** if missing or invalid. `leadType` must also be set (see **3.2.0**).
 
 ```json
 {
@@ -95,18 +95,16 @@ These fields are mandatory for **heat pump** leads (default). Validation fails w
 | Email          | `customerEmail`, `email`, `customer_email`                 |
 | Phone          | `customerPhone`, `phone`, `phone_number`, `customer_phone` |
 
-### 3.2.0 Lead type (`heat` vs `solar`)
+### 3.2.0 Lead type (`heat` vs `solar`) — **required**
 
-Omit the lead-type field (or send a heat value such as `heat_pump`) for the existing heat-pump flow.
+`leadType` (or an alias below) is **required** on every request. There is **no default** — omitting it returns **HTTP 400**. Existing heat integrations (including ECS) must send an explicit heat value.
 
-To submit a **solar** lead, set one of:
-
-| Field          | Solar values                                      |
-| -------------- | ------------------------------------------------- |
-| `leadType`     | `solar`                                           |
-| `lead_type`    | `solar`                                           |
-| `projectType`  | `solar`, `pv`, `solar_pv`                         |
-| `project_type` | `solar`, `pv`, `solar_pv`                         |
+| Field          | Heat values                         | Solar values                              |
+| -------------- | ----------------------------------- | ----------------------------------------- |
+| `leadType`     | `heat`, `heat_pump`                 | `solar`                                   |
+| `lead_type`    | `heat`, `heat_pump`                 | `solar`                                   |
+| `projectType`  | `heat`, `heat_pump`, `ashp`, `hp`   | `solar`, `pv`, `solar_pv`                 |
+| `project_type` | `heat`, `heat_pump`, `ashp`, `hp`   | `solar`, `pv`, `solar_pv`                 |
 
 Solar leads:
 
@@ -115,6 +113,11 @@ Solar leads:
 - Sync to HubSpot on the **solar** deal pipeline (New Lead stage)
 - Use the solar required/optional field rules in section **3.10**
 
+Heat leads:
+
+- Persist `lead_type: "heat"` on the OMS lead
+- Create a Spruce job and run the heat-loss estimate flow
+- Sync to HubSpot on the **heat** deal pipeline after Spruce completes
 ### 3.2.1 Required for Spruce job creation
 
 Customer fields alone are not enough to create a Spruce job. After normalization (section 3.9), the API must be able to build a complete Spruce payload including:
@@ -476,7 +479,9 @@ Built-form values such as `detached` are stored on `propertyDescription`. Values
 
 CamelCase keys inside `tariff` are also accepted (`exportPencePerKwh`, etc.).
 
-These fields are persisted on the lead under `solar` (and `integrations.openSolar.url` when an OpenSolar URL is supplied). When `openSolarUrl` is provided, the API stores it and does **not** call OpenSolar to create a project. When omitted, the API attempts OpenSolar project creation if geo/postcode are present and OpenSolar is configured; HubSpot sync still proceeds if OpenSolar is skipped or fails.
+These fields are persisted on the lead under `solar` (and `integrations.openSolar.url` internally when an OpenSolar URL is supplied or created). When `openSolarUrl` is provided, the API stores it and does **not** call OpenSolar to create a project. When omitted, the API attempts OpenSolar project creation if geo/postcode are present and OpenSolar is configured; HubSpot sync still proceeds if OpenSolar is skipped or fails.
+
+**OpenSolar URLs are not returned in the API response** — whether the partner supplied one or Installio created the project. Partners already know any URL they sent; Installio-created project links stay internal (OMS / HubSpot).
 
 #### Example (solar / ECS)
 
@@ -521,7 +526,6 @@ These fields are persisted on the lead under `solar` (and `integrations.openSola
   "openSolar": {
     "status": "submitted | skipped | failed | pending_retry",
     "projectId": "string | null",
-    "url": "string | null",
     "error": "string | null"
   },
   "solar": {
@@ -657,6 +661,7 @@ This passes customer validation but **fails Spruce pre-validation** unless `addr
 
 ```json
 {
+  "leadType": "heat",
   "customerName": "Jane Smith",
   "customerEmail": "jane.smith@example.com",
   "customerPhone": "07123456789"
@@ -667,6 +672,7 @@ This passes customer validation but **fails Spruce pre-validation** unless `addr
 
 ```json
 {
+  "leadType": "heat",
   "customerName": "Jane Smith",
   "customerEmail": "jane.smith@example.com",
   "customerPhone": "07123456789",
@@ -711,6 +717,7 @@ This passes customer validation but **fails Spruce pre-validation** unless `addr
 ```json
 {
   "partnerId": "acme-ltd",
+  "leadType": "heat",
   "customerName": "Jane Smith",
   "customerEmail": "jane.smith@example.com",
   "customerPhone": "07123456789",
@@ -785,6 +792,7 @@ Use when ECS sends certificate data at the root and customer fields under `data`
 ```json
 {
   "data": {
+    "leadType": "heat",
     "customerFirstName": "Angeliki",
     "customerLastName": "Xifara",
     "customerEmail": "axifara@ridge.co.uk",
@@ -818,6 +826,7 @@ The API copies `epcData.address` / `epcData.postcode` onto the widget fields, ma
 ```json
 {
   "data": {
+    "leadType": "heat",
     "customerName": "Jane Smith",
     "customerEmail": "jane.smith@example.com",
     "customerPhone": "07123456789",

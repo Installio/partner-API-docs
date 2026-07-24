@@ -53,7 +53,7 @@ Behavior:
 
 | Endpoint                    | Method(s)         | Purpose                                                                                            | Details                                                                                         |
 | --------------------------- | ----------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `/partnerLeadSubmit`        | `POST`            | Full lead flow: heat (Spruce + estimate) or solar (`leadType=solar` → OpenSolar + HubSpot solar pipeline) | [Partner-Lead-Submit-API.md](./Partner-Lead-Submit-API.md) |
+| `/partnerLeadSubmit`        | `POST`            | Full lead flow: heat (`leadType=heat`) or solar (`leadType=solar` → OpenSolar + HubSpot solar pipeline); `leadType` required | [Partner-Lead-Submit-API.md](./Partner-Lead-Submit-API.md) |
 | `/updateLeadCustomer`       | `PATCH`           | Update customer contact and/or `callbackRequest` on an existing lead; sync HubSpot when applicable | [updateLeadCustomer.md](./updateLeadCustomer.md)                                                |
 | `/partnerEstimateSubmit`    | `POST`            | Heat pump estimate only (no Spruce job / HubSpot create)                                           | [partnerEstimateSubmit.md](./partnerEstimateSubmit.md)                                          |
 | `onProjectJobStatusWebhook` | Firestore trigger | OMS -> Partner webhook                                                                             | Sends `job.status_changed` updates to partner `webhookUrl`                                      |
@@ -87,10 +87,12 @@ Delivery to partner `webhookUrl`:
 ## 4.2 Lead submission endpoint
 
 - Use `partnerLeadSubmit` when you need the full lead pipeline (Spruce job submission and downstream CRM processing for **heat**, or OpenSolar + HubSpot **solar** pipeline when `leadType`/`projectType` is `solar`).
+- **`leadType` is required** (`heat` / `heat_pump` or `solar` / `pv`). Omitting it returns HTTP 400 — there is no heat default.
 - This endpoint requires partner API key auth.
 - It supports direct or wrapped payload (`data`) formats.
 - It applies the same partner rate limits.
 - EPC identifier note: use certificate number/RRN (`epcData.epcCertificateNumber`) for heat leads.
+- OpenSolar URLs may be supplied on solar leads but are **not** returned in the API response.
 - Full payload and response spec: [Partner-Lead-Submit-API.md](./Partner-Lead-Submit-API.md)
 
 ## 4.2.1 Lead contact update endpoint
