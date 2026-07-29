@@ -55,6 +55,7 @@ Behavior:
 | --------------------------- | ----------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | `/partnerLeadSubmit`        | `POST`            | Full lead flow: heat (`leadType=heat`) or solar (`leadType=solar` → OpenSolar + HubSpot solar pipeline); `leadType` required | [Partner-Lead-Submit-API.md](./Partner-Lead-Submit-API.md) |
 | `/updateLeadCustomer`       | `PATCH`           | Update customer contact and/or `callbackRequest` on an existing lead; sync HubSpot when applicable | [updateLeadCustomer.md](./updateLeadCustomer.md)                                                |
+| `/leads`                    | `GET`             | List/fetch partner-scoped leads with Installio `sales_status` / `sales_phase` (INS-928)            | [partnerGetLeads.md](./partnerGetLeads.md)                                                      |
 | `/partnerEstimateSubmit`    | `POST`            | Heat pump estimate only (no Spruce job / HubSpot create)                                           | [partnerEstimateSubmit.md](./partnerEstimateSubmit.md)                                          |
 | `onProjectJobStatusWebhook` | Firestore trigger | OMS -> Partner webhook                                                                             | Sends `job.status_changed` updates to partner `webhookUrl`                                      |
 | `onLeadHubSpotPush`         | Firestore trigger | OMS -> HubSpot sync                                                                                | [HubSpot sync docs](https://gist.github.com/tigranelyazyan/0bfad64d3305fe90824d352e029bd5b0)    |
@@ -102,6 +103,12 @@ Delivery to partner `webhookUrl`:
 - Requires the same partner API key; the lead must belong to the authenticated partner.
 - Updates Firestore `customer` on the lead; if the lead was previously pushed to HubSpot (`hubspot.status === "submitted"`), HubSpot contact and deal are updated in the same request.
 - Full spec: [updateLeadCustomer.md](./updateLeadCustomer.md)
+
+## 4.2.2 Discover / reconcile leads
+
+- Use **GET `/leads`** to list or fetch partner-scoped leads and read Installio `sales_status` / `sales_phase`.
+- Responses never include HubSpot deal IDs, pipelines, or HubSpot-native stage names.
+- Full spec: [partnerGetLeads.md](./partnerGetLeads.md)
 
 ## 4.3 Web app: set partner `webhookUrl`
 
@@ -215,10 +222,11 @@ Integration guidance:
 
 1. Obtain partner API key and target environment URL.
 2. Integrate `partnerLeadSubmit` for lead submissions.
-3. Add partner `webhookUrl` in your web app settings UI.
-4. Configure your partner `webhookUrl` endpoint to receive `job.status_changed` payloads.
-5. Add monitoring for `429` and `5xx` responses.
-6. Validate behavior in dev before production rollout.
+3. Optionally use GET `/leads` to reconcile Installio `sales_status` / `sales_phase`.
+4. Add partner `webhookUrl` in your web app settings UI.
+5. Configure your partner `webhookUrl` endpoint to receive `job.status_changed` payloads.
+6. Add monitoring for `429` and `5xx` responses.
+7. Validate behavior in dev before production rollout.
 
 ---
 
