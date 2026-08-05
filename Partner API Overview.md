@@ -97,7 +97,7 @@ Trigger behavior:
 
 ## 4.2 Lead submission endpoint
 
-- Use `partnerLeadSubmit` when you need the full lead pipeline (Spruce job submission and downstream processing for **heat**, or OpenSolar + solar pipeline when `leadType`/`projectType` is `solar`).
+- Use `partnerLeadSubmit` when you need the full lead pipeline (Spruce job submission and downstream processing for **heat**, or OpenSolar when `leadType`/`projectType` is `solar`).
 - **`leadType` is required** (`heat` / `heat_pump` or `solar` / `pv`). Omitting it returns HTTP 400 — there is no heat default.
 - This endpoint requires partner API key auth.
 - It supports direct or wrapped payload (`data`) formats.

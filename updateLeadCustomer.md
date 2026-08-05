@@ -1,10 +1,10 @@
 # Update Lead Customer API
 
-**Version:** 1.0  
+**Version:** 1.1  
 **Function:** `updateLeadCustomer`  
-**Purpose:** Update customer contact details (name, email, phone) and/or callback preferences (`callbackRequest`) on an existing lead created via the Partner API or widget. Optionally syncs those changes to HubSpot when the lead was previously pushed to CRM.
+**Purpose:** Update customer contact details (name, email, phone) and/or callback preferences (`callbackRequest`) on an existing lead created via the Partner API or widget.
 
-**Related:** Uses the **same partner API keys** as [Partner Lead Submit](./Partner-Lead-Submit-API.md). The `leadId` must come from a prior `partnerLeadSubmit` or `partnerEstimateSubmit` response (or another flow that created a document in the `leads` collection for your partner).
+**Related:** Uses the **same partner API keys** as [Partner Lead Submit](./Partner-Lead-Submit-API.md). The `leadId` must come from a prior `partnerLeadSubmit` or `partnerEstimateSubmit` response (or another flow that created a lead for your partner).
 
 **Also see:** [Partner API overview](./Partner%20API%20Overview.md) (environments, auth, rate limits, errors).
 
@@ -14,7 +14,7 @@
 
 | Scenario                                                      | Endpoint                                 |
 | ------------------------------------------------------------- | ---------------------------------------- |
-| Create a new lead + Spruce job + HubSpot                      | `partnerLeadSubmit`                      |
+| Create a new lead + Spruce job                                | `partnerLeadSubmit`                      |
 | Create a lead + estimate only (no Spruce job)                 | `partnerEstimateSubmit`                  |
 | **Correct customer name / email / phone on an existing lead** | **`updateLeadCustomer`**                 |
 | **Update callback preferences on an existing lead**           | **`updateLeadCustomer`** (same endpoint) |
@@ -85,7 +85,7 @@ Authorization: <partner-api-key>
 
 | Field    | Type   | Description                                                                                                        |
 | -------- | ------ | ------------------------------------------------------------------------------------------------------------------ |
-| `leadId` | string | Firestore document ID of the lead (non-empty, trimmed). Always at the **root** of the JSON body—not inside `data`. |
+| `leadId` | string | Lead ID from a prior create response (non-empty, trimmed). Always at the **root** of the JSON body—not inside `data`. |
 
 ### 4.2 Customer fields (partial update)
 
@@ -178,31 +178,9 @@ When `callbackRequest` is sent:
 
 ---
 
-## 5. HubSpot sync
+## 5. Responses
 
-If the lead was previously synced to HubSpot via the full lead pipeline, this endpoint **also** updates HubSpot in the same request:
-
-| Condition                                                                            | HubSpot behaviour                                                                                                                                                                                                                    |
-| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `hubspot.status === "submitted"` and `hubspot.dealId` present                        | PATCH HubSpot **contact** (email, firstname, lastname, phone) and **deal** (structured deal properties derived from the lead, including `preferred_days`, `preferred_times`, `callback_questions` when `callbackRequest` is present) |
-| Lead not yet in HubSpot (e.g. estimate-only submit, or Spruce/HubSpot still pending) | Firestore updated only; response includes `hubspot.skipped: true`, `reason: "lead_not_in_hubspot"`                                                                                                                                   |
-| `HUBSPOT_API_KEY` not configured on the function                                     | Firestore updated; HubSpot skipped with `reason: "hubspot_api_key_missing"`                                                                                                                                                          |
-
-**Typical HubSpot path for partner leads:**
-
-1. `partnerLeadSubmit` creates the lead and submits to Spruce.
-2. Firestore trigger `onLeadHubSpotPush` creates contact + deal when Spruce completes.
-3. Later, `updateLeadCustomer` PATCHes Firestore and HubSpot when contact details change.
-
-`partnerEstimateSubmit` alone does **not** create HubSpot records; updates to those leads will return `lead_not_in_hubspot` until a full submit/sync has run.
-
-The response includes a `hubspot` object so you can see whether CRM sync ran (see section 6).
-
----
-
-## 6. Responses
-
-### 6.1 Success (200)
+### 5.1 Success (200)
 
 ```json
 {
@@ -219,61 +197,13 @@ The response includes a `hubspot` object so you can see whether CRM sync ran (se
     "preferredCallTimeSlots": ["9-12"],
     "preferredCallDays": ["tuesday", "wednesday"],
     "submittedAt": "2026-05-21T12:00:00.000Z"
-  },
-  "hubspot": {
-    "synced": true,
-    "skipped": false,
-    "contactId": "12345",
-    "dealId": "67890",
-    "contactOk": true,
-    "dealOk": true,
-    "error": null
-  }
-}
-```
-
-**HubSpot skipped** (lead not in CRM yet):
-
-```json
-{
-  "success": true,
-  "leadId": "abc123xyz",
-  "customer": {
-    "firstName": "Jane",
-    "lastName": "Smith",
-    "email": "jane@example.com",
-    "phone": "07123456789"
-  },
-  "hubspot": {
-    "synced": false,
-    "skipped": true,
-    "reason": "lead_not_in_hubspot"
-  }
-}
-```
-
-**HubSpot attempted but failed** (Firestore update still succeeded):
-
-```json
-{
-  "success": true,
-  "leadId": "abc123xyz",
-  "customer": { "...": "..." },
-  "hubspot": {
-    "synced": false,
-    "skipped": false,
-    "contactId": "12345",
-    "dealId": "67890",
-    "contactOk": false,
-    "dealOk": true,
-    "error": "contact_update_failed"
   }
 }
 ```
 
 Optional `warnings` array (e.g. rate limiter degraded): `"warnings": ["rate_limiter_unavailable"]`.
 
-### 6.2 Error responses
+### 5.2 Error responses
 
 | HTTP    | `error` (typical)                                           | When                                                 |
 | ------- | ----------------------------------------------------------- | ---------------------------------------------------- |
@@ -312,21 +242,21 @@ Example **400**:
 
 ---
 
-## 7. Rate limiting
+## 6. Rate limiting
 
 The same **per-partner** limits apply as for Partner Lead Submit and Partner Estimate Submit (hourly and daily caps on the partner or API key record). **429** is returned when a limit is exceeded.
 
 ---
 
-## 8. CORS
+## 7. CORS
 
 `OPTIONS` requests return **204** for browser preflight. Other methods use the shared widget CORS handler.
 
 ---
 
-## 9. Examples
+## 8. Examples
 
-### 9.1 Update all contact fields (cURL)
+### 8.1 Update all contact fields (cURL)
 
 ```bash
 curl -sS -X PATCH \
@@ -341,7 +271,7 @@ curl -sS -X PATCH \
   }'
 ```
 
-### 9.2 Partial update (phone only)
+### 8.2 Partial update (phone only)
 
 ```bash
 curl -sS -X PATCH \
@@ -354,7 +284,7 @@ curl -sS -X PATCH \
   }'
 ```
 
-### 9.3 Local emulator
+### 8.3 Local emulator
 
 ```bash
 curl -sS -X PATCH \
@@ -370,7 +300,7 @@ curl -sS -X PATCH \
   }'
 ```
 
-### 9.4 Callback preferences only
+### 8.4 Callback preferences only
 
 ```bash
 curl -sS -X PATCH \
@@ -387,7 +317,7 @@ curl -sS -X PATCH \
   }'
 ```
 
-### 9.5 Customer + callback in one request
+### 8.5 Customer + callback in one request
 
 ```bash
 curl -sS -X PATCH \
@@ -405,7 +335,7 @@ curl -sS -X PATCH \
   }'
 ```
 
-### 9.6 Nested `customer` object
+### 8.6 Nested `customer` object
 
 ```bash
 curl -sS -X PATCH \
@@ -427,16 +357,14 @@ Replace `YOUR_PARTNER_API_KEY`, `YOUR_LEAD_ID`, and base URLs with your environm
 
 ---
 
-## 10. Integration notes
+## 9. Integration notes
 
 1. **Store `leadId`** from `partnerLeadSubmit` / `partnerEstimateSubmit` responses if you may need to correct contact details later.
-2. **Lead IDs** are Firestore auto-generated strings (e.g. `eEUM0ICKjtPATjLbis57`), not UUIDs, unless your integration uses a custom ID scheme.
-3. **Idempotency:** Sending the same values twice is safe; the lead and HubSpot contact are overwritten with the same data.
-4. **Email changes:** If HubSpot sync is active, the contact record is PATCHed by `hubspot.contactId`; ensure your CRM processes allow email updates on existing contacts.
-5. **Downstream trigger:** A Firestore `onLeadHubSpotPush` update may also run after this write; behaviour is aligned with the explicit sync in this endpoint.
+2. **Lead IDs** are opaque Installio strings (e.g. `eEUM0ICKjtPATjLbis57`), not UUIDs, unless your integration uses a custom ID scheme.
+3. **Idempotency:** Sending the same values twice is safe; the lead is overwritten with the same data.
 
 ---
 
-## 11. Support
+## 10. Support
 
 For API keys, partner enablement, URL confirmation, or quota changes, contact your **Installio / Breengy platform administrator**. For creating leads and full payload semantics, see [Partner Lead Submit](./Partner-Lead-Submit-API.md) and [Partner API overview](./Partner%20API%20Overview.md).
