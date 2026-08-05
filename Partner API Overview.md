@@ -6,6 +6,17 @@
 
 This document is the standalone overview for the Installio/Breengy Partner API. It covers environments, authentication, endpoint selection, usage guidance, rate limiting, webhook events, and error handling.
 
+**Related docs**
+
+| Doc | Use when |
+| --- | -------- |
+| [Partner Lead Submit](./Partner-Lead-Submit-API.md) | Create heat or solar leads (`POST /partnerLeadSubmit`) |
+| [Partner Estimate Submit](./partnerEstimateSubmit.md) | Estimate only, no Spruce job (`POST /partnerEstimateSubmit`) |
+| [Update Lead Customer](./updateLeadCustomer.md) | Patch customer / callback on an existing lead (`PATCH /updateLeadCustomer`) |
+| [Get Leads](./partnerGetLeads.md) | List or fetch leads and current `sales_status` / `sales_phase` (`GET /leads`) |
+
+Webhooks (`job.status_changed`, `sales.status_changed`) are documented in §4–§5 below. Use [Get Leads](./partnerGetLeads.md) to pull/reconcile status if a webhook was missed.
+
 ---
 
 ## 1. Base URLs and environments
