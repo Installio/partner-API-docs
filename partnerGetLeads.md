@@ -1,9 +1,9 @@
 # Get Leads API
 
-**Version:** 1.0  
+**Version:** 1.1  
 **Function:** `leads`  
 **Method:** `GET`  
-**Purpose:** Discover and reconcile partner-scoped leads, including Installio-normalized commercial sales status (`sales_status` / `sales_phase` from INS-927).
+**Purpose:** Discover and reconcile partner-scoped leads, including Installio-normalized commercial sales status (`sales_status` / `sales_phase`).
 
 **Related:** Same partner API keys as [Partner Lead Submit](./Partner-Lead-Submit-API.md). Sales status changes are also pushed via the `sales.status_changed` webhook ([Partner API overview](./Partner%20API%20Overview.md)).
 
@@ -18,7 +18,7 @@
 | **List or look up leads for CRM reconciliation** | **`leads` (GET)** |
 | Receive push updates on sales status | partner `webhookUrl` (`sales.status_changed`) |
 
-Use **GET `/leads`** to pull the current Installio sales status for leads that belong to your partner. Responses never include HubSpot deal IDs, pipeline details, or HubSpot-native stage names.
+Use **GET `/leads`** to pull the current Installio sales status for leads that belong to your partner.
 
 ---
 
@@ -106,7 +106,7 @@ When `lead_id` is provided, the same shape is returned with a single entry in `l
 
 | Field | Description |
 | ----- | ----------- |
-| `sales_status` | Installio snake_case status (INS-927). Legacy HubSpot stage labels stored on the lead are remapped. Unmapped values are returned as `null` (never as HubSpot-native names). |
+| `sales_status` | Installio snake_case status. Unmapped values are returned as `null`. |
 | `sales_phase` | Coarse phase: `new`, `qualifying`, `survey`, `quote`, `validation`, `won`, `lost` |
 | `ecs` | Present when ECS metadata was stored on the lead; otherwise `null` |
 

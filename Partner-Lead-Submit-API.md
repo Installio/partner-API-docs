@@ -1,10 +1,10 @@
 # Technical Specification: Partner Lead Submit API
 
-**Version:** 1.5  
+**Version:** 1.6  
 **Endpoint:** `partnerLeadSubmit`  
 **Purpose:** Accept lead submissions from partner systems via API key authentication (heat pump and solar).
 
-**Also see:** [Partner API overview](./Partner%20API%20Overview.md) (environments, auth, rate limits, errors, endpoint choice). To update customer contact details on an existing lead, use [Update Lead Customer](./updateLeadCustomer.md).
+**Also see:** [Partner API overview](./Partner%20API%20Overview.md) (environments, auth, rate limits, errors, webhooks, endpoint choice). To update customer contact details on an existing lead, use [Update Lead Customer](./updateLeadCustomer.md). Sales status changes for submitted leads are pushed via `sales.status_changed` on your partner `webhookUrl`.
 
 ---
 
@@ -12,9 +12,9 @@
 
 The Partner Lead Submit API lets you submit leads from your own systems—CRMs, websites, or internal tools—without embedding the widget.
 
-**Heat pump leads:** set `leadType` / `lead_type` / `projectType` to `heat` (or `heat_pump`). Send customer and property details in a single request and receive a lead ID, heat-loss estimate, and Spruce job reference. HubSpot sync runs after Spruce completes.
+**Heat pump leads:** set `leadType` / `lead_type` / `projectType` to `heat` (or `heat_pump`). Send customer and property details in a single request and receive a lead ID, heat-loss estimate, and Spruce job reference. Downstream CRM sync is queued after Spruce completes.
 
-**Solar leads** (INS-953): set `leadType` / `lead_type` / `projectType` to `solar`. The API creates an OMS solar lead, skips Spruce, optionally links or creates an OpenSolar project, and routes the deal to the **HubSpot solar pipeline**.
+**Solar leads:** set `leadType` / `lead_type` / `projectType` to `solar`. The API creates a solar lead, skips Spruce, optionally links or creates an OpenSolar project, and queues CRM sync on the solar pipeline.
 
 The same request can also include an optional `callbackRequest` object. This supports the ECS single-call flow where job creation and callback preferences are submitted together instead of as two separate requests.
 
@@ -109,15 +109,15 @@ These fields are mandatory for **heat pump** leads. Validation fails with **HTTP
 Solar leads:
 
 - Skip Spruce job creation and heat-loss estimates
-- Persist `lead_type: "solar"` on the OMS lead
-- Sync to HubSpot on the **solar** deal pipeline (New Lead stage)
+- Persist `lead_type: "solar"` on the lead
+- Queue CRM sync on the **solar** pipeline
 - Use the solar required/optional field rules in section **3.10**
 
 Heat leads:
 
-- Persist `lead_type: "heat"` on the OMS lead
+- Persist `lead_type: "heat"` on the lead
 - Create a Spruce job and run the heat-loss estimate flow
-- Sync to HubSpot on the **heat** deal pipeline after Spruce completes
+- Queue CRM sync on the **heat** pipeline after Spruce completes
 
 ### 3.2.1 Required for Spruce job creation
 
@@ -128,7 +128,7 @@ Customer fields alone are not enough to create a Spruce job. After normalization
 | Street address | `address`         | `formattedAddress`, `formatted_address`, or `epcData.address` |
 | Postcode       | `addressPostcode` | `postcode`, `address_postcode`, or `epcData.postcode`         |
 
-If address or postcode cannot be resolved, the API returns **HTTP 400** with `error: "Invalid Spruce payload"` and does **not** create a Firestore lead.
+If address or postcode cannot be resolved, the API returns **HTTP 400** with `error: "Invalid Spruce payload"` and does **not** create a lead.
 
 Heat-loss enums (`windowType`, `roofInsulation`, `wallType`, etc.) may be omitted when `epcData` supplies them or when the server can apply safe defaults (see section 3.9).
 
@@ -171,7 +171,7 @@ When the property has a registered EPC, set `hasEPC` to `"yes"` and include an `
 
 The `epcData` object is stored on the lead as submitted. It supplements root-level property fields (section 3.3) when those are absent and informs Spruce job creation and heat-loss estimates.
 
-When using the **wrapped format** (section 3.6), you may place `epcData` and `hasEPC` at the request root while customer/property fields live under `data`. Root-level EPC fields are merged onto `data` before processing (INS-856).
+When using the **wrapped format** (section 3.6), you may place `epcData` and `hasEPC` at the request root while customer/property fields live under `data`. Root-level EPC fields are merged onto `data` before processing.
 
 **EPC fabric U-values:** When certificate lines use thermal transmittance text (e.g. `"Average thermal transmittance 0.29 W/m2K"`), the API sends Spruce `*_u_value` fields and uses placeholder enums where keyword-based fabric types are unavailable. Partners do not need to send separate `windowType` / `roofInsulation` values in that case.
 
@@ -375,7 +375,7 @@ When present, the backend normalizes the object and stores:
 - `preferredCallDays` as a trimmed string array (max 32 values)
 - `submittedAt` as an ISO timestamp
 
-### 3.8 Optional ECS integration metadata (INS-674 alignment)
+### 3.8 Optional ECS integration metadata
 
 For ECS middleware, use this in the same `create_job` request that also contains `callbackRequest`.
 
@@ -429,7 +429,7 @@ Spruce also validates `customer_email` against a stricter pattern than the partn
 
 The API validates the final Spruce payload **before** writing the lead. Invalid payloads return **HTTP 400** with a message such as `Missing required fields: address` (see section 6.4).
 
-### 3.10 Solar leads (INS-953)
+### 3.10 Solar leads
 
 Set `leadType` / `lead_type` / `projectType` to `solar` (see section 3.2.0). Solar submissions do **not** require phone, postcode, EPC fabric fields, or Spruce prerequisites.
 
@@ -480,9 +480,9 @@ Built-form values such as `detached` are stored on `propertyDescription`. Values
 
 CamelCase keys inside `tariff` are also accepted (`exportPencePerKwh`, etc.).
 
-These fields are persisted on the lead under `solar` (and `integrations.openSolar.url` internally when an OpenSolar URL is supplied or created). When `openSolarUrl` is provided, the API stores it and does **not** call OpenSolar to create a project. When omitted, the API attempts OpenSolar project creation if geo/postcode are present and OpenSolar is configured; HubSpot sync still proceeds if OpenSolar is skipped or fails.
+These fields are persisted on the lead under `solar` (and OpenSolar integration metadata when an OpenSolar URL is supplied or created). When `openSolarUrl` is provided, the API stores it and does **not** call OpenSolar to create a project. When omitted, the API attempts OpenSolar project creation if geo/postcode are present and OpenSolar is configured; CRM sync still proceeds if OpenSolar is skipped or fails.
 
-**OpenSolar URLs are not returned in the API response** — whether the partner supplied one or Installio created the project. Partners already know any URL they sent; Installio-created project links stay internal (OMS / HubSpot).
+**OpenSolar URLs are not returned in the API response** — whether the partner supplied one or Installio created the project. Partners already know any URL they sent; Installio-created project links stay internal.
 
 #### Example (solar / ECS)
 
@@ -538,10 +538,12 @@ These fields are persisted on the lead under `solar` (and `integrations.openSola
   },
   "hubspot": {
     "status": "pending",
-    "message": "HubSpot sync runs via Firestore after OpenSolar (solar pipeline)"
+    "message": "CRM sync is queued and runs asynchronously after OpenSolar"
   }
 }
 ```
+
+The `hubspot` object is the CRM sync acknowledgement field name in the response (kept for compatibility). Treat `status: "pending"` as “queued”.
 
 ---
 
@@ -881,7 +883,7 @@ The API copies `epcData.address` / `epcData.postcode` onto the widget fields, ma
   },
   "hubspot": {
     "status": "pending",
-    "message": "HubSpot sync runs via Firestore after Spruce completes"
+    "message": "CRM sync is queued and runs asynchronously after Spruce completes"
   },
   "ecs": {
     "externalId": "string | null",
@@ -902,14 +904,14 @@ The API copies `epcData.address` / `epcData.postcode` onto the widget fields, ma
 }
 ```
 
-- `leadId` — Firestore document ID in `leads` collection
+- `leadId` — unique Installio lead identifier
 - `spruce.status` — `submitted` when Spruce accepted the job; `pending` when job creation failed (may be retried server-side; see `retryable`)
-- `hubspot` — HubSpot push is asynchronous; status becomes `submitted` on the lead document after the Firestore trigger succeeds
+- `hubspot` — CRM sync acknowledgement (field name kept for compatibility). Immediately after submit this is typically `pending`; sync completes asynchronously
 - `ecs` — normalized ECS integration metadata when supplied; otherwise keys are present with `null` values
 - `callbackRequest` — normalized callback object when supplied; otherwise `null`. When callback data is supplied, response always includes `questionsForCall`, `preferredCallTimeSlots`, `preferredCallDays`, and `submittedAt`.
 - `estimate` — Full JSON from Spruce `POST /v1/estimates` on success, with extra pricing fields on each `estimates[]` row (see below); `null` if the estimate request failed
 - `estimateSummary` — Small convenience object derived from the first `estimates[]` row; `null` if `estimate` is `null`
-- `lead` — Latest Firestore lead snapshot after create + Spruce/estimate update (full stored document). Returned as `null` only if snapshot read fails.
+- `lead` — Latest lead snapshot after create + Spruce/estimate update (full stored document). Returned as `null` only if snapshot read fails.
 - `warnings` — e.g. rate-limiter fallback messages when applicable
 
 ### 6.2 Example success body (estimate present)
@@ -931,7 +933,7 @@ The **`estimate`** object below matches a **real** Spruce `POST /v1/estimates` r
   },
   "hubspot": {
     "status": "pending",
-    "message": "HubSpot sync runs via Firestore after Spruce completes"
+    "message": "CRM sync is queued and runs asynchronously after Spruce completes"
   },
   "callbackRequest": {
     "questionsForCall": "Can you explain the installation timeline?",
@@ -1114,11 +1116,11 @@ Spruce may also return **camelCase** equivalents for some quantities (e.g. `tota
 
 When the estimate call fails, **`estimate`** and **`estimateSummary`** are both **`null`**; the HTTP response is still **200** if the lead was created and the response is otherwise successful.
 
-### 6.3 `lead` object fields (stored Firestore snapshot)
+### 6.3 `lead` object fields (stored lead snapshot)
 
 `lead` includes all currently stored lead fields. Common top-level keys are:
 
-- `id`, `partnerId`, `widgetVersion`, `status`, `salesStatus`, `submissionChannel`
+- `id`, `partnerId`, `widgetVersion`, `status`, `salesStatus`, `salesPhase`, `submissionChannel`
 - `property` (normalized property fields)
 - `customer` (name/email/phone)
 - `epcData` (full field list in [section 3.4](#34-optional-epc-fields)), `hasEPC`
@@ -1126,12 +1128,12 @@ When the estimate call fails, **`estimate`** and **`estimateSummary`** are both 
 - `ecs`
 - `callbackRequest`
 - `spruce`
-- `hubspot`
+- `hubspot` (CRM sync metadata; field name kept for compatibility)
 - `estimate`
 - `metadata`
 - `createdAt`, `updatedAt`
 
-Exact nested keys can evolve as integrations add fields (for example under `spruce`, `hubspot`, or `estimate`).
+Exact nested keys can evolve as integrations add fields (for example under `spruce`, `hubspot`, or `estimate`). Prefer Installio `salesStatus` / `salesPhase` (or the GET `/leads` / `sales.status_changed` webhook fields) for commercial status rather than nested CRM metadata.
 
 ### 6.4 Error (HTTP 4xx, 5xx)
 
@@ -1224,5 +1226,5 @@ Limits are configured per partner or per API key. When exceeded, the API returns
 7. **Resolve `leadType`** — return **HTTP 400** if missing/invalid (`heat` or `solar`; see section 3.2.0)
 8. Normalize optional `callbackRequest` (single-call create job + callback flow)
 9. Normalize optional ECS metadata (`ecs` / root aliases)
-10. **If `leadType=solar`:** validate solar fields → create OMS solar lead → link/create OpenSolar (URL not returned) → return response (HubSpot solar pipeline via Firestore trigger)
-11. **If `leadType=heat`:** validate required customer fields → resolve/enrich `epcData` → **validate Spruce job payload** (HTTP 400 if address/postcode missing) → create lead → Spruce job + estimate → return response (HubSpot heat pipeline via Firestore trigger after Spruce)
+10. **If `leadType=solar`:** validate solar fields → create solar lead → link/create OpenSolar (URL not returned) → return response (CRM sync queued asynchronously)
+11. **If `leadType=heat`:** validate required customer fields → resolve/enrich `epcData` → **validate Spruce job payload** (HTTP 400 if address/postcode missing) → create lead → Spruce job + estimate → return response (CRM sync queued asynchronously after Spruce)
