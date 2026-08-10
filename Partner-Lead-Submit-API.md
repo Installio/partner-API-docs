@@ -323,11 +323,11 @@ Numeric values may be sent as numbers or strings; the API coerces known numeric 
   "renovating": "string",
   "goals": "string",
   "questionsForTeam": "string",
-  "callbackAllowed": "boolean (optional; alias callback_allowed)"
+  "outreachAllowed": "boolean (optional; alias outreach_allowed)"
 }
 ```
 
-`callbackAllowed` indicates whether Installio may include the lead in the marketing funnel (for example outbound callback or follow-up). Set `true` to allow, `false` to disallow. Accepted values: `true` / `false`, `1` / `0`, `"yes"` / `"no"`. Omit the field when unknown — there is no default. Invalid values return **HTTP 400**.
+`outreachAllowed` indicates whether Installio may include the lead in the marketing funnel (for example outbound callback or follow-up). Set `true` to allow, `false` to disallow. Accepted values: `true` / `false`, `1` / `0`, `"yes"` / `"no"`. Omit the field when unknown — there is no default. Invalid values return **HTTP 400**.
 
 ### 3.6 Top-Level Wrapper Fields (wrapped format only)
 
@@ -514,7 +514,7 @@ These fields are persisted on the lead under `solar` (and OpenSolar integration 
   },
   "open_solar_url": "https://app.opensolar.com/#/projects/12345",
   "partner_job_reference": "ECS-SOLAR-001",
-  "callbackAllowed": true,
+  "outreachAllowed": true,
   "ecs": {
     "externalId": "ecs-solar-001",
     "correlationId": "550e8400-e29b-41d4-a716-446655440000"
@@ -709,7 +709,7 @@ This passes customer validation but **fails Spruce pre-validation** unless `addr
   "cylinderSpace": "yes",
   "renovating": "no",
   "goals": "reduce_bills",
-  "callbackAllowed": true,
+  "outreachAllowed": true,
   "callbackRequest": {
     "questionsForCall": "Can you explain the installation timeline?",
     "preferredCallTimeSlots": ["9-12", "14-16"],
@@ -783,7 +783,7 @@ This passes customer validation but **fails Spruce pre-validation** unless `addr
   "renovating": "no",
   "goals": "reduce_bills",
   "questionsForTeam": "When can you start?",
-  "callbackAllowed": true,
+  "outreachAllowed": true,
   "callbackRequest": {
     "questionsForCall": "What happens after the survey?",
     "preferredCallTimeSlots": ["12-14"],
@@ -849,7 +849,7 @@ The API copies `epcData.address` / `epcData.postcode` onto the widget fields, ma
     "cavityWallInsulation": "insulated",
     "windowType": "double_glazed",
     "roofInsulation": "100mm",
-    "callbackAllowed": true,
+    "outreachAllowed": true,
     "callbackRequest": {
       "questionsForCall": "Please call after 2pm.",
       "preferredCallTimeSlots": ["14-16"],
