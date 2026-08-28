@@ -64,7 +64,7 @@ Behavior:
 
 | Endpoint                 | Method(s)       | Purpose                                                                                                              | Details                                                        |
 | ------------------------ | --------------- | -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `/partnerLeadSubmit`     | `POST`          | Full lead flow: heat (`leadType=heat`) or solar (`leadType=solar`); `leadType` required                              | [Partner-Lead-Submit-API.md](./Partner-Lead-Submit-API.md)     |
+| `/partnerLeadSubmit`     | `POST`          | Full lead flow: heat (`leadType=heat`, default if omitted) or solar (`leadType=solar`)                                | [Partner-Lead-Submit-API.md](./Partner-Lead-Submit-API.md)     |
 | `/updateLeadCustomer`    | `PATCH`         | Update customer contact and/or `callbackRequest` on an existing lead                                                 | [updateLeadCustomer.md](./updateLeadCustomer.md)               |
 | `/leads`                 | `GET`           | List/fetch partner-scoped leads with Installio `sales_status` / `sales_phase`                                        | [partnerGetLeads.md](./partnerGetLeads.md)                     |
 | `/partnerEstimateSubmit` | `POST`          | Heat pump estimate only (no Spruce job)                                                                              | [partnerEstimateSubmit.md](./partnerEstimateSubmit.md)         |
@@ -109,7 +109,7 @@ Trigger behavior:
 ## 4.2 Lead submission endpoint
 
 - Use `partnerLeadSubmit` when you need the full lead pipeline (Spruce job submission and downstream processing for **heat**, or OpenSolar when `leadType`/`projectType` is `solar`).
-- **`leadType` is required** (`heat` / `heat_pump` or `solar` / `pv`). Omitting it returns HTTP 400 — there is no heat default.
+- **`leadType` is optional** until ECS starts sending it. Omitted / empty values default to **heat**. Pass `solar` (or `pv`) for solar leads. Invalid values return HTTP 400.
 - This endpoint requires partner API key auth.
 - It supports direct or wrapped payload (`data`) formats.
 - It applies the same partner rate limits.

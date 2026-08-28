@@ -82,7 +82,7 @@ The body must be a JSON object. Two formats are supported:
 
 ### 3.2 Required Fields
 
-These fields are mandatory for **heat pump** leads. Validation fails with **HTTP 400** if missing or invalid. `leadType` must also be set (see **3.2.0**).
+These fields are mandatory for **heat pump** leads. Validation fails with **HTTP 400** if missing or invalid. `leadType` defaults to `heat` when omitted (see **3.2.0**).
 
 ```json
 {
@@ -101,9 +101,9 @@ These fields are mandatory for **heat pump** leads. Validation fails with **HTTP
 | Email          | `customerEmail`, `email`, `customer_email`                 |
 | Phone          | `customerPhone`, `phone`, `phone_number`, `customer_phone` |
 
-### 3.2.0 Lead type (`heat` vs `solar`) — **required**
+### 3.2.0 Lead type (`heat` vs `solar`)
 
-`leadType` (or an alias below) is **required** on every request. There is **no default** — omitting it returns **HTTP 400**. Existing heat integrations (including ECS) must send an explicit heat value.
+`leadType` (or an alias below) selects heat vs solar. **If omitted or empty, the API defaults to `heat`** so existing ECS heat traffic keeps working until they send an explicit type. Send `solar` (or `pv`) for solar leads. Invalid values return **HTTP 400**.
 
 | Field          | Heat values                       | Solar values              |
 | -------------- | --------------------------------- | ------------------------- |
@@ -1138,13 +1138,13 @@ Exact nested keys can evolve as integrations add fields (for example under `spru
 }
 ```
 
-**Missing / invalid lead type (HTTP 400)** — `leadType` (or `lead_type` / `projectType` / `project_type`) is required on every request:
+**Invalid lead type (HTTP 400)** — returned only when `leadType` (or `lead_type` / `projectType` / `project_type`) is present but not a recognised heat or solar value. Omitting the field defaults to heat and does **not** 400:
 
 ```json
 {
   "success": false,
-  "error": "leadType is required (use \"heat\" or \"solar\"; aliases: lead_type, projectType, project_type)",
-  "message": "Provide leadType as \"heat\" or \"solar\" (aliases: lead_type, projectType, project_type). Existing heat integrations must send an explicit heat value."
+  "error": "Invalid leadType \"battery\" (expected \"heat\" or \"solar\")",
+  "message": "Provide leadType as \"heat\" or \"solar\" (aliases: lead_type, projectType, project_type). Omitting leadType defaults to heat."
 }
 ```
 
@@ -1215,7 +1215,7 @@ Limits are configured per partner or per API key. When exceeded, the API returns
 4. Normalize partner payload (`normalizePartnerLeadWidgetData` — section 3.9)
 5. Load partner config; verify partner exists and is enabled
 6. Check rate limits
-7. **Resolve `leadType`** — return **HTTP 400** if missing/invalid (`heat` or `solar`; see section 3.2.0)
+7. **Resolve `leadType`** — omit/empty → **heat**; `solar`/`pv` → solar; invalid → **HTTP 400** (see section 3.2.0)
 8. Normalize optional `callbackRequest` (single-call create job + callback flow)
 9. Normalize optional ECS metadata (`ecs` / root aliases)
 10. **If `leadType=solar`:** validate solar fields → create solar lead → link/create OpenSolar (URL not returned) → return response
