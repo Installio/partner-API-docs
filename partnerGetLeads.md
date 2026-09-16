@@ -14,7 +14,7 @@
 | Scenario | Endpoint |
 | -------- | -------- |
 | Create a new lead | `partnerLeadSubmit` / `partnerEstimateSubmit` |
-| Correct customer contact / callback | `updateLeadCustomer` |
+| Correct customer contact / callback / `outreachAllowed` | `updateLeadCustomer` |
 | **List or look up leads for CRM reconciliation** | **`leads` (GET)** |
 | Receive push updates on sales status | partner `webhookUrl` (`sales.status_changed`) |
 

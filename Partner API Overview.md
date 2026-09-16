@@ -12,7 +12,7 @@ This document is the standalone overview for the Installio/Breengy Partner API. 
 | --- | -------- |
 | [Partner Lead Submit](./Partner-Lead-Submit-API.md) | Create heat or solar leads (`POST /partnerLeadSubmit`) |
 | [Partner Estimate Submit](./partnerEstimateSubmit.md) | Estimate only, no Spruce job (`POST /partnerEstimateSubmit`) |
-| [Update Lead Customer](./updateLeadCustomer.md) | Patch customer / callback on an existing lead (`PATCH /updateLeadCustomer`) |
+| [Update Lead Customer](./updateLeadCustomer.md) | Patch customer / callback / `outreachAllowed` on an existing lead (`PATCH /updateLeadCustomer`) |
 | [Get Leads](./partnerGetLeads.md) | List or fetch leads and current `sales_status` / `sales_phase` (`GET /leads`) |
 
 Webhooks (`job.status_changed`, `sales.status_changed`) are documented in §4–§5 below. Use [Get Leads](./partnerGetLeads.md) to pull/reconcile status if a webhook was missed.
@@ -65,7 +65,7 @@ Behavior:
 | Endpoint                 | Method(s)       | Purpose                                                                                                              | Details                                                        |
 | ------------------------ | --------------- | -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
 | `/partnerLeadSubmit`     | `POST`          | Full lead flow: heat (`leadType=heat`, default if omitted) or solar (`leadType=solar`)                                | [Partner-Lead-Submit-API.md](./Partner-Lead-Submit-API.md)     |
-| `/updateLeadCustomer`    | `PATCH`         | Update customer contact and/or `callbackRequest` on an existing lead                                                 | [updateLeadCustomer.md](./updateLeadCustomer.md)               |
+| `/updateLeadCustomer`    | `PATCH`         | Update customer contact, `callbackRequest`, and/or `outreachAllowed` on an existing lead                             | [updateLeadCustomer.md](./updateLeadCustomer.md)               |
 | `/leads`                 | `GET`           | List/fetch partner-scoped leads with Installio `sales_status` / `sales_phase`                                        | [partnerGetLeads.md](./partnerGetLeads.md)                     |
 | `/partnerEstimateSubmit` | `POST`          | Heat pump estimate only (no Spruce job)                                                                              | [partnerEstimateSubmit.md](./partnerEstimateSubmit.md)         |
 | Job status webhook       | Partner webhook | OMS → Partner                                                                                                        | Sends `job.status_changed` updates to partner `webhookUrl`     |
@@ -119,7 +119,7 @@ Trigger behavior:
 
 ## 4.2.1 Lead contact update endpoint
 
-- Use `updateLeadCustomer` when you already have a `leadId` and need to change **customer** name, email, phone, and/or **callback** preferences.
+- Use `updateLeadCustomer` when you already have a `leadId` and need to change **customer** name, email, phone, **callback** preferences, and/or **`outreachAllowed`**.
 - **Method:** `PATCH` only.
 - Requires the same partner API key; the lead must belong to the authenticated partner.
 - Updates customer details on the lead.

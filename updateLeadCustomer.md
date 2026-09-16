@@ -1,8 +1,8 @@
 # Update Lead Customer API
 
-**Version:** 1.1  
+**Version:** 1.2  
 **Function:** `updateLeadCustomer`  
-**Purpose:** Update customer contact details (name, email, phone) and/or callback preferences (`callbackRequest`) on an existing lead created via the Partner API or widget.
+**Purpose:** Update customer contact details (name, email, phone), callback preferences (`callbackRequest`), and/or `outreachAllowed` on an existing lead created via the Partner API or widget.
 
 **Related:** Uses the **same partner API keys** as [Partner Lead Submit](./Partner-Lead-Submit-API.md). The `leadId` must come from a prior `partnerLeadSubmit` or `partnerEstimateSubmit` response (or another flow that created a lead for your partner).
 
@@ -18,10 +18,11 @@
 | Create a lead + estimate only (no Spruce job)                 | `partnerEstimateSubmit`                  |
 | **Correct customer name / email / phone on an existing lead** | **`updateLeadCustomer`**                 |
 | **Update callback preferences on an existing lead**           | **`updateLeadCustomer`** (same endpoint) |
+| **Set `outreachAllowed` on an existing lead**                 | **`updateLeadCustomer`** (same endpoint) |
 
-Use **`updateLeadCustomer`** after you have a `leadId` and the customer’s contact details and/or callback preferences have changed.
+Use **`updateLeadCustomer`** after you have a `leadId` and the customer’s contact details, callback preferences, and/or outreach consent have changed.
 
-This endpoint does **not** change property, EPC, estimate, or Spruce job data—only `customer` and/or `callbackRequest` on the lead document.
+This endpoint does **not** change property, EPC, estimate, or Spruce job data—only `customer`, `callbackRequest`, and/or `outreachAllowed` on the lead document.
 
 ---
 
@@ -89,7 +90,7 @@ Authorization: <partner-api-key>
 
 ### 4.2 Customer fields (partial update)
 
-Send **at least one** customer field **or** callback payload per request (see §4.3). Omitted customer fields are left unchanged on the lead.
+Send **at least one** customer field, callback payload, or `outreachAllowed` per request (see §4.3–§4.4). Omitted customer fields are left unchanged on the lead.
 
 **Widget-style names (root or under `data`):**
 
@@ -131,9 +132,21 @@ Same shape and aliases as [Partner Lead Submit](./Partner-Lead-Submit-API.md) §
 
 Snake-case aliases (`callback_request`, `questions_for_call`, `preferred_call_days`, `preferred_call_time_slots`) are accepted. Flat callback fields at root or under `data` (without nesting) are also accepted.
 
-You may send **only** `callbackRequest`, **only** customer fields, or both in one `PATCH`.
+You may send **only** `callbackRequest`, **only** customer fields, **only** `outreachAllowed`, or any combination in one `PATCH`.
 
-### 4.4 Payload layouts
+### 4.4 `outreachAllowed`
+
+Same field and aliases as [Partner Lead Submit](./Partner-Lead-Submit-API.md) §3.5. Use this when the customer later consents to outreach (for example after clicking to book a meeting) without changing their name or contact details.
+
+| Field              | Type    | Description                                                                                          |
+| ------------------ | ------- | ---------------------------------------------------------------------------------------------------- |
+| `outreachAllowed`  | boolean | Whether Installio may include the lead in the marketing funnel. Alias: `outreach_allowed`.           |
+
+Accepted values: `true` / `false`, `1` / `0`, `"yes"` / `"no"`. Invalid values return **HTTP 400**. Omit the field to leave the existing value unchanged.
+
+May be sent at the **root** or under `data`.
+
+### 4.5 Payload layouts
 
 1. **Direct** — `leadId` and customer fields at the root.
 2. **Wrapped** — customer fields under `data`; `leadId` stays at root.
@@ -150,7 +163,7 @@ You may send **only** `callbackRequest`, **only** customer fields, or both in on
 
 3. **Optional `partnerId`** at root — if present, must match the partner attached to the API key.
 
-### 4.5 What is stored
+### 4.6 What is stored
 
 The service merges your patch into the lead’s `customer` object:
 
@@ -173,6 +186,8 @@ When `callbackRequest` is sent:
   "submittedAt": "ISO-8601 string"
 }
 ```
+
+When `outreachAllowed` is sent, the boolean is stored on the lead as `outreachAllowed`. If the lead was already pushed to HubSpot, the deal property `outreach_allowed` is updated.
 
 `updatedAt` is set on the lead document.
 
@@ -197,7 +212,8 @@ When `callbackRequest` is sent:
     "preferredCallTimeSlots": ["9-12"],
     "preferredCallDays": ["tuesday", "wednesday"],
     "submittedAt": "2026-05-21T12:00:00.000Z"
-  }
+  },
+  "outreachAllowed": true
 }
 ```
 
@@ -210,7 +226,8 @@ Optional `warnings` array (e.g. rate limiter degraded): `"warnings": ["rate_limi
 | **400** | `Invalid or missing leadId`                                 | No `leadId`                                          |
 | **400** | `Invalid email address` / `customerEmail cannot be empty`   | Bad or empty email                                   |
 | **400** | `Invalid callbackRequest`                                   | `callbackRequest` is not a JSON object when provided |
-| **400** | `No fields to update`                                       | No customer or callback fields sent                  |
+| **400** | `No fields to update`                                       | No customer, callback, or `outreachAllowed` fields sent |
+| **400** | `Invalid outreachAllowed (...)`                             | `outreachAllowed` present but not a boolean-like value |
 | **401** | `Missing Authorization header` / `Invalid API key`          | Auth failure                                         |
 | **403** | `Partner mismatch` / `Lead does not belong to this partner` | Wrong partner or lead ownership                      |
 | **403** | `Partner is disabled`                                       | Partner turned off                                   |
@@ -236,7 +253,7 @@ Example **400**:
 {
   "success": false,
   "error": "No fields to update",
-  "message": "Provide at least one customer field and/or callbackRequest (or flat callback fields)"
+  "message": "Provide at least one customer field, callbackRequest (or flat callback fields), and/or outreachAllowed"
 }
 ```
 
@@ -350,6 +367,19 @@ curl -sS -X PATCH \
       "firstName": "Jane",
       "lastName": "Smith"
     }
+  }'
+```
+
+### 8.7 `outreachAllowed` only
+
+```bash
+curl -sS -X PATCH \
+  'https://europe-west2-co-pilot-dev-f762b.cloudfunctions.net/updateLeadCustomer' \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer YOUR_PARTNER_API_KEY' \
+  -d '{
+    "leadId": "YOUR_LEAD_ID",
+    "outreachAllowed": true
   }'
 ```
 
