@@ -105,17 +105,20 @@ These fields are mandatory for **heat pump** leads. Validation fails with **HTTP
 
 `leadType` (or an alias below) selects heat vs solar. **If omitted or empty, the API defaults to `heat`** so existing ECS heat traffic keeps working until they send an explicit type. Send `solar` (or `pv`) for solar leads. Invalid values return **HTTP 400**.
 
-| Field          | Heat values                       | Solar values              |
-| -------------- | --------------------------------- | ------------------------- |
-| `leadType`     | `heat`, `heat_pump`               | `solar`                   |
-| `lead_type`    | `heat`, `heat_pump`               | `solar`                   |
-| `projectType`  | `heat`, `heat_pump`, `ashp`, `hp` | `solar`, `pv`, `solar_pv` |
-| `project_type` | `heat`, `heat_pump`, `ashp`, `hp` | `solar`, `pv`, `solar_pv` |
+Solar-pipeline product mix (solar / battery / EV charger) uses the separate **`technology`** field (section 3.10). Convenience aliases such as `battery_only` still create a **solar** lead and imply `technology: ["battery"]`.
 
-Solar leads:
+| Field          | Heat values                       | Solar values / solar-pipeline aliases                            |
+| -------------- | --------------------------------- | ---------------------------------------------------------------- |
+| `leadType`     | `heat`, `heat_pump`               | `solar`; also `battery_only`, `battery`, `ev_charger`, `ev_only` |
+| `lead_type`    | `heat`, `heat_pump`               | same as above                                                    |
+| `projectType`  | `heat`, `heat_pump`, `ashp`, `hp` | `solar`, `pv`, `solar_pv`; also battery/EV aliases above         |
+| `project_type` | `heat`, `heat_pump`, `ashp`, `hp` | same as above                                                    |
+
+Solar leads (including `battery_only` / `ev_charger` aliases):
 
 - Skip Spruce job creation and heat-loss estimates
 - Persist `lead_type: "solar"` on the lead
+- Persist `technologies` and sync HubSpot deal `technology`
 - Use the solar required/optional field rules in section **3.10**
 
 Heat leads:
@@ -465,12 +468,33 @@ Built-form values such as `detached` are stored on `propertyDescription`. Values
 
 | Semantic field          | Accepted aliases / shape                                                                                              | Type                       |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| Technology              | `technology`, `technologies`, `jobTechnologies`, `job_technologies`                                                     | multi-select (see below)   |
 | Annual electrical spend | `annualElectricalSpend`, `annual_electrical_spend`, `annualElectricalSpendGbp`, `annual_electrical_spend_pence`       | number (commas allowed)    |
 | Spend unit              | `annualElectricalSpendUnit`, `annual_electrical_spend_unit` (`gbp` \| `pence`)                                        | string                     |
 | Tariff                  | `tariff` object (see below) or flat `export_pence_per_kwh` / `import_pence_per_kwh` / `standing_charge_cents_per_day` | object                     |
 | Panel count             | `panelCount`, `panel_count`, `panels`                                                                                 | whole non-negative integer |
 | OpenSolar URL           | `openSolarUrl`, `open_solar_url`, `opensolar_url`                                                                     | http(s) URL                |
 | Partner job reference   | `partnerJobReference`, `partner_job_reference`, `partnerJobRef`, `externalJobReference`                               | string                     |
+
+**Technology (solar leads only)**
+
+Multi-select of products on the solar pipeline. Synced to the HubSpot deal `technology` property and stored on the OMS lead as `technologies`.
+
+| Partner value (any of)                         | OMS `technologies` | HubSpot `technology` |
+| ---------------------------------------------- | ------------------ | -------------------- |
+| `solar`, `pv`, `solar_pv`                      | `solar`            | `solar`              |
+| `battery`, `homeBattery`, `home_battery`, `battery_only` | `homeBattery` | `battery`            |
+| `ev`, `evCharger`, `ev_charger`, `EV charger`  | `evCharger`        | `EV charger`         |
+
+Accepted shapes: JSON array (`["solar","battery"]`), semicolon/comma string (`"solar;battery"`), or a single token.
+
+Defaults:
+
+- `leadType: "solar"` with no `technology` → `["solar"]`
+- `leadType: "battery_only"` (or `battery`) with no `technology` → `["homeBattery"]`
+- `leadType: "ev_charger"` (or `ev_only`) with no `technology` → `["evCharger"]`
+
+`technology` on a **heat** lead returns **HTTP 400**. Heat-pump installs stay on the heat pipeline (`leadType: "heat"`); do not mix `heat pump` into solar `technology`.
 
 **Tariff object**
 
@@ -503,6 +527,7 @@ These fields are persisted on the lead under `solar` (and OpenSolar integration 
   "address": "123 High Street, London",
   "tenure": "owned",
   "property_type": "detached",
+  "technology": ["solar", "battery", "EV charger"],
   "annual_electrical_spend": "1,276.25",
   "annual_electrical_spend_unit": "gbp",
   "panel_count": 12,
@@ -522,12 +547,25 @@ These fields are persisted on the lead under `solar` (and OpenSolar integration 
 }
 ```
 
+Battery-only (ECS) — solar pipeline, HubSpot `technology=battery`:
+
+```json
+{
+  "leadType": "battery_only",
+  "first_name": "Jane",
+  "last_name": "Smith",
+  "email": "jane.smith@example.com",
+  "address": "123 High Street, London"
+}
+```
+
 #### Solar success response extras
 
 ```json
 {
   "success": true,
   "leadType": "solar",
+  "technologies": ["solar", "homeBattery", "evCharger"],
   "spruce": {
     "status": "skipped",
     "message": "Solar leads do not use Spruce"
@@ -1138,13 +1176,13 @@ Exact nested keys can evolve as integrations add fields (for example under `spru
 }
 ```
 
-**Invalid lead type (HTTP 400)** — returned only when `leadType` (or `lead_type` / `projectType` / `project_type`) is present but not a recognised heat or solar value. Omitting the field defaults to heat and does **not** 400:
+**Invalid lead type (HTTP 400)** — returned only when `leadType` (or `lead_type` / `projectType` / `project_type`) is present but not a recognised heat, solar, or solar-pipeline alias (`battery_only`, `ev_charger`, …). Omitting the field defaults to heat and does **not** 400:
 
 ```json
 {
   "success": false,
-  "error": "Invalid leadType \"battery\" (expected \"heat\" or \"solar\")",
-  "message": "Provide leadType as \"heat\" or \"solar\" (aliases: lead_type, projectType, project_type). Omitting leadType defaults to heat."
+  "error": "Invalid leadType \"wind\" (expected \"heat\" or \"solar\"; solar-pipeline aliases: battery_only, ev_charger)",
+  "message": "Provide leadType as \"heat\" or \"solar\" (aliases: lead_type, projectType, project_type; solar-pipeline: battery_only, ev_charger). Omitting leadType defaults to heat."
 }
 ```
 
