@@ -118,7 +118,7 @@ Solar leads (including `battery_only` / `ev_charger` aliases):
 
 - Skip Spruce job creation and heat-loss estimates
 - Persist `lead_type: "solar"` on the lead
-- Persist `technologies` and sync HubSpot deal `technology`
+- Persist `technologies` on the lead
 - Use the solar required/optional field rules in section **3.10**
 
 Heat leads:
@@ -478,13 +478,13 @@ Built-form values such as `detached` are stored on `propertyDescription`. Values
 
 **Technology (solar leads only)**
 
-Multi-select of products on the solar pipeline. Synced to the HubSpot deal `technology` property and stored on the OMS lead as `technologies`.
+Multi-select of products on the solar pipeline. Stored on the OMS lead as `technologies`.
 
-| Partner value (any of)                         | OMS `technologies` | HubSpot `technology` |
-| ---------------------------------------------- | ------------------ | -------------------- |
-| `solar`, `pv`, `solar_pv`                      | `solar`            | `solar`              |
-| `battery`, `homeBattery`, `home_battery`, `battery_only` | `homeBattery` | `battery`            |
-| `ev`, `evCharger`, `ev_charger`, `EV charger`  | `evCharger`        | `EV charger`         |
+| Partner value (any of)                                       | OMS `technologies` |
+| ------------------------------------------------------------ | ------------------ |
+| `solar`, `pv`, `solar_pv`                                    | `solar`            |
+| `battery`, `homeBattery`, `home_battery`, `battery_only`     | `homeBattery`      |
+| `ev`, `evCharger`, `ev_charger`, `EV charger`                | `evCharger`        |
 
 Accepted shapes: JSON array (`["solar","battery"]`), semicolon/comma string (`"solar;battery"`), or a single token.
 
@@ -547,7 +547,7 @@ These fields are persisted on the lead under `solar` (and OpenSolar integration 
 }
 ```
 
-Battery-only (ECS) — solar pipeline, HubSpot `technology=battery`:
+Battery-only (ECS) — solar pipeline, `technologies: ["homeBattery"]`:
 
 ```json
 {
