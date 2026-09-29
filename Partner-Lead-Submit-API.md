@@ -105,16 +105,16 @@ These fields are mandatory for **heat pump** leads. Validation fails with **HTTP
 
 `leadType` (or an alias below) selects heat vs solar. **If omitted or empty, the API defaults to `heat`** so existing ECS heat traffic keeps working until they send an explicit type. Send `solar` (or `pv`) for solar leads. Invalid values return **HTTP 400**.
 
-Solar-pipeline product mix (solar / battery / EV charger) uses the separate **`technology`** field (section 3.10). Convenience aliases such as `battery_only` still create a **solar** lead and imply `technology: ["battery"]`.
+Product mix on solar leads (solar / battery / EV charger) uses the separate **`technology`** field (section 3.10) — not `leadType`.
 
-| Field          | Heat values                       | Solar values / solar-pipeline aliases                            |
-| -------------- | --------------------------------- | ---------------------------------------------------------------- |
-| `leadType`     | `heat`, `heat_pump`               | `solar`; also `battery_only`, `battery`, `ev_charger`, `ev_only` |
-| `lead_type`    | `heat`, `heat_pump`               | same as above                                                    |
-| `projectType`  | `heat`, `heat_pump`, `ashp`, `hp` | `solar`, `pv`, `solar_pv`; also battery/EV aliases above         |
-| `project_type` | `heat`, `heat_pump`, `ashp`, `hp` | same as above                                                    |
+| Field          | Heat values                       | Solar values              |
+| -------------- | --------------------------------- | ------------------------- |
+| `leadType`     | `heat`, `heat_pump`               | `solar`                   |
+| `lead_type`    | `heat`, `heat_pump`               | `solar`                   |
+| `projectType`  | `heat`, `heat_pump`, `ashp`, `hp` | `solar`, `pv`, `solar_pv` |
+| `project_type` | `heat`, `heat_pump`, `ashp`, `hp` | `solar`, `pv`, `solar_pv` |
 
-Solar leads (including `battery_only` / `ev_charger` aliases):
+Solar leads:
 
 - Skip Spruce job creation and heat-loss estimates
 - Persist `lead_type: "solar"` on the lead
@@ -491,8 +491,7 @@ Accepted shapes: JSON array (`["solar","battery"]`), semicolon/comma string (`"s
 Defaults:
 
 - `leadType: "solar"` with no `technology` → `["solar"]`
-- `leadType: "battery_only"` (or `battery`) with no `technology` → `["homeBattery"]`
-- `leadType: "ev_charger"` (or `ev_only`) with no `technology` → `["evCharger"]`
+- Battery-only / EV-only: still use `leadType: "solar"` and set `technology` to `["battery"]` or `["EV charger"]`
 
 `technology` on a **heat** lead returns **HTTP 400**. Heat-pump installs stay on the heat pipeline (`leadType: "heat"`); do not mix `heat pump` into solar `technology`.
 
@@ -547,11 +546,12 @@ These fields are persisted on the lead under `solar` (and OpenSolar integration 
 }
 ```
 
-Battery-only (ECS) — solar pipeline, `technologies: ["homeBattery"]`:
+Battery-only (ECS) — `leadType: "solar"` + `technology: ["battery"]`:
 
 ```json
 {
-  "leadType": "battery_only",
+  "leadType": "solar",
+  "technology": ["battery"],
   "first_name": "Jane",
   "last_name": "Smith",
   "email": "jane.smith@example.com",
@@ -1176,13 +1176,13 @@ Exact nested keys can evolve as integrations add fields (for example under `spru
 }
 ```
 
-**Invalid lead type (HTTP 400)** — returned only when `leadType` (or `lead_type` / `projectType` / `project_type`) is present but not a recognised heat, solar, or solar-pipeline alias (`battery_only`, `ev_charger`, …). Omitting the field defaults to heat and does **not** 400:
+**Invalid lead type (HTTP 400)** — returned only when `leadType` (or `lead_type` / `projectType` / `project_type`) is present but not a recognised heat or solar value. Omitting the field defaults to heat and does **not** 400:
 
 ```json
 {
   "success": false,
-  "error": "Invalid leadType \"wind\" (expected \"heat\" or \"solar\"; solar-pipeline aliases: battery_only, ev_charger)",
-  "message": "Provide leadType as \"heat\" or \"solar\" (aliases: lead_type, projectType, project_type; solar-pipeline: battery_only, ev_charger). Omitting leadType defaults to heat."
+  "error": "Invalid leadType \"battery_only\" (expected \"heat\" or \"solar\")",
+  "message": "Provide leadType as \"heat\" or \"solar\" (aliases: lead_type, projectType, project_type). Omitting leadType defaults to heat. Use technology for solar / battery / EV charger mix."
 }
 ```
 
