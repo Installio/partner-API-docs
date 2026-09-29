@@ -468,7 +468,7 @@ Built-form values such as `detached` are stored on `propertyDescription`. Values
 
 | Semantic field          | Accepted aliases / shape                                                                                              | Type                       |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------- | -------------------------- |
-| Technology              | `technology`, `technologies`, `jobTechnologies`, `job_technologies`                                                     | multi-select (see below)   |
+| Technology              | `technology`, `technologies`, `jobTechnologies`, `job_technologies`                                                   | multi-select (see below)   |
 | Annual electrical spend | `annualElectricalSpend`, `annual_electrical_spend`, `annualElectricalSpendGbp`, `annual_electrical_spend_pence`       | number (commas allowed)    |
 | Spend unit              | `annualElectricalSpendUnit`, `annual_electrical_spend_unit` (`gbp` \| `pence`)                                        | string                     |
 | Tariff                  | `tariff` object (see below) or flat `export_pence_per_kwh` / `import_pence_per_kwh` / `standing_charge_cents_per_day` | object                     |
@@ -480,11 +480,11 @@ Built-form values such as `detached` are stored on `propertyDescription`. Values
 
 Multi-select of products on the solar pipeline. Stored on the OMS lead as `technologies`.
 
-| Partner value (any of)                                       | OMS `technologies` |
-| ------------------------------------------------------------ | ------------------ |
-| `solar`, `pv`, `solar_pv`                                    | `solar`            |
-| `battery`, `homeBattery`, `home_battery`, `battery_only`     | `homeBattery`      |
-| `ev`, `evCharger`, `ev_charger`, `EV charger`                | `evCharger`        |
+| Partner value (any of)                                   | OMS `technologies` |
+| -------------------------------------------------------- | ------------------ |
+| `solar`, `pv`, `solar_pv`                                | `solar`            |
+| `battery`, `homeBattery`, `home_battery`, `battery_only` | `homeBattery`      |
+| `ev`, `evCharger`, `ev_charger`, `EV charger`            | `evCharger`        |
 
 Accepted shapes: JSON array (`["solar","battery"]`), semicolon/comma string (`"solar;battery"`), or a single token.
 
@@ -514,7 +514,7 @@ These fields are persisted on the lead under `solar` (and OpenSolar integration 
 
 **OpenSolar URLs are not returned in the API response** — whether the partner supplied one or Installio created the project. Partners already know any URL they sent; Installio-created project links stay internal.
 
-#### Example (solar / ECS)
+#### Example (solar)
 
 ```json
 {
@@ -546,7 +546,7 @@ These fields are persisted on the lead under `solar` (and OpenSolar integration 
 }
 ```
 
-Battery-only (ECS) — `leadType: "solar"` + `technology: ["battery"]`:
+Battery-only — `leadType: "solar"` + `technology: ["battery"]`:
 
 ```json
 {
