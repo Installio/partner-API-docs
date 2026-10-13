@@ -5,7 +5,7 @@
 **Method:** `GET`  
 **Purpose:** Discover and reconcile partner-scoped leads, including Installio-normalized commercial sales status (`sales_status` / `sales_phase`).
 
-**Related:** Same partner API keys as [Partner Lead Submit](./Partner-Lead-Submit-API.md). Sales status changes are also pushed via the `sales.status_changed` webhook ([Partner API overview](./Partner%20API%20Overview.md)).
+**Related:** Same partner API keys as [Partner Lead Submit](./Partner-Lead-Submit-API.md). New leads are pushed via `lead_created`, and sales status changes via `sales.status_changed`, on the partner `webhookUrl` ([Partner API overview](./Partner%20API%20Overview.md)).
 
 ---
 
@@ -16,6 +16,7 @@
 | Create a new lead | `partnerLeadSubmit` / `partnerEstimateSubmit` |
 | Correct customer contact / callback / `outreachAllowed` | `updateLeadCustomer` |
 | **List or look up leads for CRM reconciliation** | **`leads` (GET)** |
+| Receive a push when a lead is created | partner `webhookUrl` (`lead_created`) |
 | Receive push updates on sales status | partner `webhookUrl` (`sales.status_changed`) |
 
 Use **GET `/leads`** to pull the current Installio sales status for leads that belong to your partner.
