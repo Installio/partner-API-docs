@@ -10,7 +10,7 @@
 - [Update Lead Customer](./updateLeadCustomer.md) — patch customer / callback / `outreachAllowed` on an existing lead
 - [Get Leads](./partnerGetLeads.md) — list/fetch leads and Installio `sales_status` / `sales_phase`
 - [Partner Estimate Submit](./partnerEstimateSubmit.md) — estimate-only (no Spruce job)
-- New lead push: `lead_created` on your partner `webhookUrl` ([overview §5.3](./Partner%20API%20Overview.md#53-lead_created))
+- New lead push: `lead_created` on your partner `webhookUrl` ([overview §5.6](./Partner%20API%20Overview.md#56-lead_created))
 - Sales status push updates: `sales.status_changed` on your partner `webhookUrl` ([overview §5.2](./Partner%20API%20Overview.md#52-salesstatus_changed))
 
 ---
@@ -1164,7 +1164,7 @@ When the estimate call fails, **`estimate`** and **`estimateSummary`** are both 
 - `metadata`
 - `createdAt`, `updatedAt`
 
-Exact nested keys can evolve as integrations add fields (for example under `spruce` or `estimate`). Use Installio `salesStatus` / `salesPhase` — or [GET `/leads`](./partnerGetLeads.md) / [`lead_created`](./Partner%20API%20Overview.md#53-lead_created) / [`sales.status_changed`](./Partner%20API%20Overview.md#52-salesstatus_changed) — for commercial status. Quote amounts in this response are not included on `lead_created`.
+Exact nested keys can evolve as integrations add fields (for example under `spruce` or `estimate`). Use Installio `salesStatus` / `salesPhase` — or [GET `/leads`](./partnerGetLeads.md) / [`lead_created`](./Partner%20API%20Overview.md#56-lead_created) / [`sales.status_changed`](./Partner%20API%20Overview.md#52-salesstatus_changed) — for commercial status. Quote amounts in this response are not included on `lead_created`.
 
 ### 6.4 Error (HTTP 4xx, 5xx)
 

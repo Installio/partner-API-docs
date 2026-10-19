@@ -2,7 +2,7 @@
 
 **Audience:** External partner engineering teams integrating CRM and lead flows  
 **Status:** Shareable externally  
-**Version:** 1.2
+**Version:** 1.3
 
 This document is the standalone overview for the Installio/Breengy Partner API. It covers environments, authentication, endpoint selection, usage guidance, rate limiting, webhook events, and error handling.
 
@@ -15,7 +15,7 @@ This document is the standalone overview for the Installio/Breengy Partner API. 
 | [Update Lead Customer](./updateLeadCustomer.md) | Patch customer / callback / `outreachAllowed` on an existing lead (`PATCH /updateLeadCustomer`) |
 | [Get Leads](./partnerGetLeads.md) | List or fetch leads and current `sales_status` / `sales_phase` (`GET /leads`) |
 
-Webhooks (`lead_created`, `job.status_changed`, `sales.status_changed`) are documented in §4–§5 below. Use [Get Leads](./partnerGetLeads.md) to pull/reconcile a lead if a webhook was missed.
+Webhooks (`lead_created`, `job.status_changed`, `sales.status_changed`, `job.scheduled`, `job.rescheduled`, `job.unscheduled`) are documented in §4–§5 below. Use [Get Leads](./partnerGetLeads.md) to pull/reconcile a lead if a webhook was missed.
 
 ---
 
@@ -71,6 +71,9 @@ Behavior:
 | Lead created webhook     | Partner webhook | OMS → Partner                                                                                                        | Sends `lead_created` when a lead is created, to partner `webhookUrl` |
 | Job status webhook       | Partner webhook | OMS → Partner                                                                                                        | Sends `job.status_changed` updates to partner `webhookUrl`     |
 | Sales status webhook     | Partner webhook | OMS → Partner                                                                                                        | Sends `sales.status_changed` updates to partner `webhookUrl`   |
+| Job scheduled webhook    | Partner webhook | OMS → Partner                                                                                                        | Sends `job.scheduled` when a job schedule is confirmed          |
+| Job rescheduled webhook  | Partner webhook | OMS → Partner                                                                                                        | Sends `job.rescheduled` when a confirmed schedule changes      |
+| Job unscheduled webhook  | Partner webhook | OMS → Partner                                                                                                        | Sends `job.unscheduled` when a confirmed schedule is withdrawn  |
 
 ---
 
@@ -122,6 +125,27 @@ Trigger behavior:
 - Uses the same delivery rules (HTTPS POST, 8s timeout, `2xx` success, best-effort logging on failure).
 - If status advances several steps in one update, you receive a single event with the previous and new values (intermediate statuses may be skipped). Rapid successive updates produce one event per change.
 
+## 4.1.2 Job schedule webhook flow
+
+When any Installio job is scheduled, rescheduled, or unscheduled, OMS may send a webhook to the same partner `webhookUrl`. This covers every job type, including surveys.
+
+These events fire at the same moments as the partner schedule emails. They are not gated by the partner’s email settings.
+
+Trigger behavior:
+
+- `job.scheduled` when a job gains a confirmed start date and is not cancelled. Jobs created with a date already set (for example a HubSpot survey booking) are included. A job confirmed again after it was unscheduled sends `job.scheduled`, not `job.rescheduled`.
+- `job.rescheduled` when a confirmed schedule changes.
+  - Fixed-duration jobs (`survey`, `service`, `callOut`): the start date or start time changes. A change to the end date alone does not send an event.
+  - Date-range jobs (`install`, `firstFix`, `remedial`, `other`): the start date, end date, or start time changes.
+- `job.unscheduled` when a confirmed schedule is withdrawn.
+  - `reason` is `cancelled` when the job status becomes `cancelled`.
+  - `reason` is `unscheduled` when the start date is cleared without a cancellation.
+  - `schedule` is the schedule that was withdrawn.
+- Delivery is partner-scoped via the same webhook subscription(s) as job status events (only jobs belonging to your partner).
+- Uses the same delivery rules (HTTPS POST, 8s timeout, `2xx` success, best-effort logging on failure).
+
+Schedule instants are ISO-8601 UTC. `timezone` is always `Europe/London`. Format `start_at`, `end_at`, and `start_time` in that zone. Do not treat the UTC clock as the wall clock: the UK observes Greenwich Mean Time (UTC+0) and British Summer Time (UTC+1), including the clock-change weekends.
+
 ## 4.2 Lead submission endpoint
 
 - Use `partnerLeadSubmit` when you need the full lead pipeline (Spruce job submission and downstream processing for **heat**, or OpenSolar when `leadType`/`projectType` is `solar`).
@@ -153,13 +177,13 @@ Your web app includes an input field where a partner can set the destination URL
 Recommended guidance text for UI:
 
 - Label: **Webhook URL**
-- Help text: **Enter your public HTTPS endpoint to receive `lead_created`, `job.status_changed`, and `sales.status_changed` events.**
+- Help text: **Enter your public HTTPS endpoint to receive `lead_created`, `job.status_changed`, `sales.status_changed`, `job.scheduled`, `job.rescheduled`, and `job.unscheduled` events.**
 - Validation: **Must be a valid `https://` URL reachable from the public internet.**
 - Example value: `https://partner.example.com/installio/webhooks`
 
 Suggested partner-facing note:
 
-> We send `POST` requests with JSON payload when a lead is created and whenever OMS detects a job status or sales status change.  
+> We send `POST` requests with JSON payload when a lead is created, when a job is scheduled, rescheduled, or unscheduled, and whenever OMS detects a job status or sales status change.  
 > Distinguish events with `event_type`. Your endpoint should return HTTP `2xx` quickly (within 8 seconds timeout window).
 
 ![alt text here](https://gist.github.com/user-attachments/assets/ac87272c-0ded-4965-933e-1e667b49b8de)
@@ -173,6 +197,9 @@ Event types currently emitted:
 - `lead_created`
 - `job.status_changed`
 - `sales.status_changed`
+- `job.scheduled`
+- `job.rescheduled`
+- `job.unscheduled`
 
 ### 5.1 `job.status_changed`
 
@@ -213,7 +240,79 @@ Supported `sales_status` values (fine-grain): `new`, `attempted_contact`, `conta
 
 Supported `sales_phase` values (coarse / partner default): `new`, `qualifying`, `survey`, `quote`, `validation`, `won`, `lost`.
 
-### 5.3 `lead_created`
+### 5.3 `job.scheduled`
+
+```json
+{
+  "event_type": "job.scheduled",
+  "event_id": "uuid",
+  "occurred_at": "2026-06-14T09:00:00.000Z",
+  "job_id": "string-or-null",
+  "project_id": "optional-string",
+  "lead_id": "optional-string",
+  "job_type": "survey",
+  "timezone": "Europe/London",
+  "schedule": {
+    "start_at": "2026-06-14T08:00:00.000Z",
+    "start_time": "2026-06-14T08:00:00.000Z"
+  }
+}
+```
+
+`job_type` is the Installio job type: `survey`, `install`, `firstFix`, `remedial`, `service`, `callOut`, or `other`.
+
+`schedule.start_at` is the confirmed start. `schedule.start_time` is the confirmed clock time when one is set, otherwise `null`. Date-range jobs also include `schedule.end_at`. Fixed-duration jobs (`survey`, `service`, `callOut`) omit `end_at`.
+
+### 5.4 `job.rescheduled`
+
+```json
+{
+  "event_type": "job.rescheduled",
+  "event_id": "uuid",
+  "occurred_at": "2026-06-15T09:00:00.000Z",
+  "job_id": "string-or-null",
+  "project_id": "optional-string",
+  "lead_id": "optional-string",
+  "job_type": "install",
+  "timezone": "Europe/London",
+  "schedule": {
+    "start_at": "2026-06-18T08:00:00.000Z",
+    "end_at": "2026-06-19T16:00:00.000Z",
+    "start_time": "2026-06-18T08:00:00.000Z"
+  },
+  "previous_schedule": {
+    "start_at": "2026-06-16T08:00:00.000Z",
+    "end_at": "2026-06-17T16:00:00.000Z",
+    "start_time": "2026-06-16T08:00:00.000Z"
+  }
+}
+```
+
+`schedule` is the updated schedule. `previous_schedule` is the schedule the partner was last told about.
+
+### 5.5 `job.unscheduled`
+
+```json
+{
+  "event_type": "job.unscheduled",
+  "event_id": "uuid",
+  "occurred_at": "2026-06-15T11:00:00.000Z",
+  "job_id": "string-or-null",
+  "project_id": "optional-string",
+  "lead_id": "optional-string",
+  "job_type": "survey",
+  "timezone": "Europe/London",
+  "reason": "unscheduled",
+  "schedule": {
+    "start_at": "2026-06-14T08:00:00.000Z",
+    "start_time": "2026-06-14T08:00:00.000Z"
+  }
+}
+```
+
+`reason` is `cancelled` when the job was cancelled, or `unscheduled` when the date was cleared. `schedule` is the withdrawn schedule.
+
+### 5.6 `lead_created`
 
 ```json
 {
@@ -251,9 +350,9 @@ Not included: ECS fields (`ecs`, external ids, correlation ids), quote or price 
 
 Notes:
 
-- All three events are delivered to the same partner `webhookUrl` subscription(s).
+- All of these events are delivered to the same partner `webhookUrl` subscription(s).
 - `old_status` / `new_status` on `sales.status_changed` mirror `old_sales_status` / `new_sales_status` for compatibility.
-- New subscriptions default to all three event types. Subscriptions still stored with the previous defaults (`job.status_changed`, or `job.status_changed` plus `sales.status_changed`) also receive `lead_created`. A custom `eventTypes` list that is not one of those historical defaults is delivered as stored.
+- New subscriptions default to every event type. Subscriptions still stored with a previous default (`job.status_changed`, or `job.status_changed` plus `sales.status_changed`) also receive `lead_created` and the schedule events. A custom `eventTypes` list that is not one of those historical defaults is delivered as stored.
 - Delivery is best effort to active partner webhook targets. Per-target HTTP and network failures are logged and do not fail lead creation.
 - Partners should key handlers on `event_type` and treat delivery as at-least-once (use `event_id` for idempotency if needed).
 - If a `lead_created` webhook is missed, reconcile with [GET `/leads`](./partnerGetLeads.md).
@@ -314,7 +413,7 @@ Integration guidance:
 2. Integrate `partnerLeadSubmit` for lead submissions.
 3. Optionally use GET `/leads` to reconcile Installio `sales_status` / `sales_phase`.
 4. Add partner `webhookUrl` in your web app settings UI.
-5. Configure your partner `webhookUrl` endpoint to receive `lead_created`, `job.status_changed`, and `sales.status_changed` payloads.
+5. Configure your partner `webhookUrl` endpoint to receive `lead_created`, `job.status_changed`, `sales.status_changed`, `job.scheduled`, `job.rescheduled`, and `job.unscheduled` payloads.
 6. Add monitoring for `429` and `5xx` responses.
 7. Validate behavior in dev before production rollout.
 
