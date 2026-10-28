@@ -2,7 +2,7 @@
 
 **Audience:** External partner engineering teams integrating CRM and lead flows  
 **Status:** Shareable externally  
-**Version:** 1.1
+**Version:** 1.2
 
 This document is the standalone overview for the Installio/Breengy Partner API. It covers environments, authentication, endpoint selection, usage guidance, rate limiting, webhook events, and error handling.
 
@@ -15,7 +15,7 @@ This document is the standalone overview for the Installio/Breengy Partner API. 
 | [Update Lead Customer](./updateLeadCustomer.md) | Patch customer / callback / `outreachAllowed` on an existing lead (`PATCH /updateLeadCustomer`) |
 | [Get Leads](./partnerGetLeads.md) | List or fetch leads and current `sales_status` / `sales_phase` (`GET /leads`) |
 
-Webhooks (`job.status_changed`, `sales.status_changed`) are documented in §4–§5 below. Use [Get Leads](./partnerGetLeads.md) to pull/reconcile status if a webhook was missed.
+Webhooks (`lead_created`, `job.status_changed`, `sales.status_changed`) are documented in §4–§5 below. Use [Get Leads](./partnerGetLeads.md) to pull/reconcile a lead if a webhook was missed.
 
 ---
 
@@ -68,12 +68,28 @@ Behavior:
 | `/updateLeadCustomer`    | `PATCH`         | Update customer contact, `callbackRequest`, and/or `outreachAllowed` on an existing lead                             | [updateLeadCustomer.md](./updateLeadCustomer.md)               |
 | `/leads`                 | `GET`           | List/fetch partner-scoped leads with Installio `sales_status` / `sales_phase`                                        | [partnerGetLeads.md](./partnerGetLeads.md)                     |
 | `/partnerEstimateSubmit` | `POST`          | Heat pump estimate only (no Spruce job)                                                                              | [partnerEstimateSubmit.md](./partnerEstimateSubmit.md)         |
+| Lead created webhook     | Partner webhook | OMS → Partner                                                                                                        | Sends `lead_created` when a lead is created, to partner `webhookUrl` |
 | Job status webhook       | Partner webhook | OMS → Partner                                                                                                        | Sends `job.status_changed` updates to partner `webhookUrl`     |
 | Sales status webhook     | Partner webhook | OMS → Partner                                                                                                        | Sends `sales.status_changed` updates to partner `webhookUrl`   |
 
 ---
 
 ## 4. Usage guide
+
+## 4.0 Lead created webhook flow
+
+When a lead is created in Leads OMS, OMS may send a webhook to your configured `webhookUrl`.
+
+This covers every create route that writes an OMS lead, including partner API and portal submissions, the estimate widget, leads created manually in OMS, and leads created from HubSpot (including email into HubSpot). A later update to that lead does not send `lead_created` again.
+
+Trigger behavior:
+
+- Sends `lead_created` once, when the lead document is created.
+- Delivery is partner-scoped (only for leads belonging to your partner).
+- Payload includes contact details, address, Installio pipeline position (`sales_status` / `sales_phase`), identifiers, and `partner_reference` when the lead has one.
+- ECS integration fields and quote or price amounts are not included.
+- HubSpot deal, pipeline, and stage identifiers are not included.
+- Uses the same delivery rules (HTTPS POST, 8s timeout, `2xx` success, best-effort logging on failure).
 
 ## 4.1 Job status webhook flow
 
@@ -137,13 +153,13 @@ Your web app includes an input field where a partner can set the destination URL
 Recommended guidance text for UI:
 
 - Label: **Webhook URL**
-- Help text: **Enter your public HTTPS endpoint to receive `job.status_changed` and `sales.status_changed` events.**
+- Help text: **Enter your public HTTPS endpoint to receive `lead_created`, `job.status_changed`, and `sales.status_changed` events.**
 - Validation: **Must be a valid `https://` URL reachable from the public internet.**
 - Example value: `https://partner.example.com/installio/webhooks`
 
 Suggested partner-facing note:
 
-> We send `POST` requests with JSON payload whenever OMS detects a job status or sales status change.  
+> We send `POST` requests with JSON payload when a lead is created and whenever OMS detects a job status or sales status change.  
 > Distinguish events with `event_type`. Your endpoint should return HTTP `2xx` quickly (within 8 seconds timeout window).
 
 ![alt text here](https://gist.github.com/user-attachments/assets/ac87272c-0ded-4965-933e-1e667b49b8de)
@@ -154,6 +170,7 @@ Suggested partner-facing note:
 
 Event types currently emitted:
 
+- `lead_created`
 - `job.status_changed`
 - `sales.status_changed`
 
@@ -196,13 +213,50 @@ Supported `sales_status` values (fine-grain): `new`, `attempted_contact`, `conta
 
 Supported `sales_phase` values (coarse / partner default): `new`, `qualifying`, `survey`, `quote`, `validation`, `won`, `lost`.
 
+### 5.3 `lead_created`
+
+```json
+{
+  "event_type": "lead_created",
+  "event_id": "uuid",
+  "occurred_at": "2026-10-13T10:00:00.000Z",
+  "lead_id": "abc123",
+  "partner_id": "acme-ltd",
+  "partner_reference": "partner-job-42",
+  "lead_type": "heat",
+  "status": "new",
+  "sales_status": "new",
+  "sales_phase": "new",
+  "submission_channel": "partner_lead_api",
+  "customer": {
+    "first_name": "Jane",
+    "last_name": "Smith",
+    "email": "jane.smith@example.com",
+    "phone": "07123456789"
+  },
+  "property": {
+    "address": "123 High Street, London",
+    "postcode": "SW1A 1AA"
+  },
+  "created_at": "2026-10-13T10:00:00.000Z",
+  "project_id": "optional-string"
+}
+```
+
+`partner_reference` is the partner job reference stored on the lead (`partnerJobReference`), or `null` when the lead has none. `project_id` is included only when the lead is already linked to a project.
+
+`sales_status` and `sales_phase` are the Installio pipeline position at create time. They use the same values as `sales.status_changed`. Unmapped values are `null`.
+
+Not included: ECS fields (`ecs`, external ids, correlation ids), quote or price amounts, and HubSpot deal, pipeline, or stage identifiers.
+
 Notes:
 
-- Both events are delivered to the same partner `webhookUrl` subscription(s).
-- `old_status` / `new_status` mirror `old_sales_status` / `new_sales_status` for compatibility.
-- New subscriptions default to both event types; legacy job-only subscriptions also receive sales status on the same URL.
-- Delivery is best effort to active partner webhook targets.
+- All three events are delivered to the same partner `webhookUrl` subscription(s).
+- `old_status` / `new_status` on `sales.status_changed` mirror `old_sales_status` / `new_sales_status` for compatibility.
+- New subscriptions default to all three event types. Subscriptions still stored with the previous defaults (`job.status_changed`, or `job.status_changed` plus `sales.status_changed`) also receive `lead_created`. A custom `eventTypes` list that is not one of those historical defaults is delivered as stored.
+- Delivery is best effort to active partner webhook targets. Per-target HTTP and network failures are logged and do not fail lead creation.
 - Partners should key handlers on `event_type` and treat delivery as at-least-once (use `event_id` for idempotency if needed).
+- If a `lead_created` webhook is missed, reconcile with [GET `/leads`](./partnerGetLeads.md).
 
 ---
 
@@ -260,7 +314,7 @@ Integration guidance:
 2. Integrate `partnerLeadSubmit` for lead submissions.
 3. Optionally use GET `/leads` to reconcile Installio `sales_status` / `sales_phase`.
 4. Add partner `webhookUrl` in your web app settings UI.
-5. Configure your partner `webhookUrl` endpoint to receive `job.status_changed` and `sales.status_changed` payloads.
+5. Configure your partner `webhookUrl` endpoint to receive `lead_created`, `job.status_changed`, and `sales.status_changed` payloads.
 6. Add monitoring for `429` and `5xx` responses.
 7. Validate behavior in dev before production rollout.
 
