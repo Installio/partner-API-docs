@@ -83,7 +83,7 @@ Behavior:
 
 When a lead is created in Leads OMS, OMS may send a webhook to your configured `webhookUrl`.
 
-This covers every create route that writes an OMS lead, including partner API and portal submissions, the estimate widget, leads created manually in OMS, and leads created from HubSpot (including email into HubSpot). A later update to that lead does not send `lead_created` again.
+This covers every create route that writes an OMS lead, including partner API and portal submissions, the estimate widget, leads created manually in OMS, and leads created through other Installio intake channels (including inbound email). A later update to that lead does not send `lead_created` again.
 
 Trigger behavior:
 
@@ -91,7 +91,6 @@ Trigger behavior:
 - Delivery is partner-scoped (only for leads belonging to your partner).
 - Payload includes contact details, address, Installio pipeline position (`sales_status` / `sales_phase`), identifiers, and `partner_reference` when the lead has one.
 - ECS integration fields and quote or price amounts are not included.
-- HubSpot deal, pipeline, and stage identifiers are not included.
 - Uses the same delivery rules (HTTPS POST, 8s timeout, `2xx` success, best-effort logging on failure).
 
 ## 4.1 Job status webhook flow
@@ -133,7 +132,7 @@ These events fire at the same moments as the partner schedule emails. They are n
 
 Trigger behavior:
 
-- `job.scheduled` when a job gains a confirmed start date and is not cancelled. Jobs created with a date already set (for example a HubSpot survey booking) are included. A job confirmed again after it was unscheduled sends `job.scheduled`, not `job.rescheduled`.
+- `job.scheduled` when a job gains a confirmed start date and is not cancelled. Jobs created with a date already set (for example a survey booked when the job is created) are included. A job confirmed again after it was unscheduled sends `job.scheduled`, not `job.rescheduled`.
 - `job.rescheduled` when a confirmed schedule changes.
   - Fixed-duration jobs (`survey`, `service`, `callOut`): the start date or start time changes. A change to the end date alone does not send an event.
   - Date-range jobs (`install`, `firstFix`, `remedial`, `other`): the start date, end date, or start time changes.
@@ -346,7 +345,7 @@ Supported `sales_phase` values (coarse / partner default): `new`, `qualifying`, 
 
 `sales_status` and `sales_phase` are the Installio pipeline position at create time. They use the same values as `sales.status_changed`. Unmapped values are `null`.
 
-Not included: ECS fields (`ecs`, external ids, correlation ids), quote or price amounts, and HubSpot deal, pipeline, or stage identifiers.
+Not included: ECS fields (`ecs`, external ids, correlation ids) and quote or price amounts.
 
 Notes:
 
