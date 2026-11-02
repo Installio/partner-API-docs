@@ -15,6 +15,7 @@
 | -------- | -------- |
 | Create a new lead | `partnerLeadSubmit` / `partnerEstimateSubmit` |
 | Correct customer contact / callback / `outreachAllowed` | `updateLeadCustomer` |
+| Mark a lead accepted or lost | `updateLeadProposal` |
 | **List or look up leads for CRM reconciliation** | **`leads` (GET)** |
 | Receive a push when a lead is created | partner `webhookUrl` (`lead_created`) |
 | Receive push updates on sales status | partner `webhookUrl` (`sales.status_changed`) |

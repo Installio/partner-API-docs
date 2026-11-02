@@ -2,7 +2,7 @@
 
 **Audience:** External partner engineering teams integrating CRM and lead flows  
 **Status:** Shareable externally  
-**Version:** 1.3
+**Version:** 1.4
 
 This document is the standalone overview for the Installio/Breengy Partner API. It covers environments, authentication, endpoint selection, usage guidance, rate limiting, webhook events, and error handling.
 
@@ -13,6 +13,7 @@ This document is the standalone overview for the Installio/Breengy Partner API. 
 | [Partner Lead Submit](./Partner-Lead-Submit-API.md) | Create heat or solar leads (`POST /partnerLeadSubmit`) |
 | [Partner Estimate Submit](./partnerEstimateSubmit.md) | Estimate only, no Spruce job (`POST /partnerEstimateSubmit`) |
 | [Update Lead Customer](./updateLeadCustomer.md) | Patch customer / callback / `outreachAllowed` on an existing lead (`PATCH /updateLeadCustomer`) |
+| [Update Lead Proposal](./updateLeadProposal.md) | Mark a lead `proposal_accepted` or `closed_lost` (`POST /updateLeadProposal`) |
 | [Get Leads](./partnerGetLeads.md) | List or fetch leads and current `sales_status` / `sales_phase` (`GET /leads`) |
 
 Webhooks (`lead_created`, `job.status_changed`, `sales.status_changed`, `job.scheduled`, `job.rescheduled`, `job.unscheduled`) are documented in §4–§5 below. Use [Get Leads](./partnerGetLeads.md) to pull/reconcile a lead if a webhook was missed.
@@ -66,6 +67,7 @@ Behavior:
 | ------------------------ | --------------- | -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
 | `/partnerLeadSubmit`     | `POST`          | Full lead flow: heat (`leadType=heat`, default if omitted) or solar (`leadType=solar`)                                | [Partner-Lead-Submit-API.md](./Partner-Lead-Submit-API.md)     |
 | `/updateLeadCustomer`    | `PATCH`         | Update customer contact, `callbackRequest`, and/or `outreachAllowed` on an existing lead                             | [updateLeadCustomer.md](./updateLeadCustomer.md)               |
+| `/updateLeadProposal`    | `POST`          | Mark a partner lead `proposal_accepted` or `closed_lost`. Heat acceptance creates one installation job.              | [updateLeadProposal.md](./updateLeadProposal.md)               |
 | `/leads`                 | `GET`           | List/fetch partner-scoped leads with Installio `sales_status` / `sales_phase`                                        | [partnerGetLeads.md](./partnerGetLeads.md)                     |
 | `/partnerEstimateSubmit` | `POST`          | Heat pump estimate only (no Spruce job)                                                                              | [partnerEstimateSubmit.md](./partnerEstimateSubmit.md)         |
 | Lead created webhook     | Partner webhook | OMS → Partner                                                                                                        | Sends `lead_created` when a lead is created, to partner `webhookUrl` |
@@ -164,7 +166,17 @@ Schedule instants are ISO-8601 UTC. `timezone` is always `Europe/London`. Format
 - Updates customer details on the lead.
 - Full spec: [updateLeadCustomer.md](./updateLeadCustomer.md)
 
-## 4.2.2 Discover / reconcile leads
+## 4.2.2 Proposal outcome
+
+- Use `updateLeadProposal` when the partner owns the proposal stage and needs to record `proposal_accepted` or `closed_lost` on an existing lead.
+- **Method:** `POST` only.
+- Requires the same partner API key. The lead must belong to the authenticated partner.
+- `proposal_accepted` on a heat lead creates one installation job. A repeat does not create a second job. Solar acceptance updates the lead only.
+- `closed_lost` closes the lead and creates no installation job.
+- The other outcome, after one is already saved, returns **409**.
+- Full spec: [updateLeadProposal.md](./updateLeadProposal.md)
+
+## 4.2.3 Discover / reconcile leads
 
 - Use **GET `/leads`** to list or fetch partner-scoped leads and read Installio `sales_status` / `sales_phase`.
 - Full spec: [partnerGetLeads.md](./partnerGetLeads.md)
