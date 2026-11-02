@@ -187,7 +187,7 @@ When `callbackRequest` is sent:
 }
 ```
 
-When `outreachAllowed` is sent, the boolean is stored on the lead as `outreachAllowed`. If the lead was already pushed to HubSpot, the deal property `outreach_allowed` is updated.
+When `outreachAllowed` is sent, the boolean is stored on the lead as `outreachAllowed`.
 
 `updatedAt` is set on the lead document.
 
