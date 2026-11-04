@@ -2,7 +2,7 @@
 
 **Audience:** External partner engineering teams integrating CRM and lead flows  
 **Status:** Shareable externally  
-**Version:** 1.3
+**Version:** 1.4
 
 This document is the standalone overview for the Installio/Breengy Partner API. It covers environments, authentication, endpoint selection, usage guidance, rate limiting, webhook events, and error handling.
 
@@ -14,6 +14,7 @@ This document is the standalone overview for the Installio/Breengy Partner API. 
 | [Partner Estimate Submit](./partnerEstimateSubmit.md) | Estimate only, no Spruce job (`POST /partnerEstimateSubmit`) |
 | [Update Lead Customer](./updateLeadCustomer.md) | Patch customer / callback / `outreachAllowed` on an existing lead (`PATCH /updateLeadCustomer`) |
 | [Get Leads](./partnerGetLeads.md) | List or fetch leads and current `sales_status` / `sales_phase` (`GET /leads`) |
+| [Lead note](./leadNote.md) | Post a subject and message for an existing lead (`POST /leadNote`) |
 
 Webhooks (`lead_created`, `job.status_changed`, `sales.status_changed`, `job.scheduled`, `job.rescheduled`, `job.unscheduled`) are documented in §4–§5 below. Use [Get Leads](./partnerGetLeads.md) to pull/reconcile a lead if a webhook was missed.
 
@@ -67,6 +68,7 @@ Behavior:
 | `/partnerLeadSubmit`     | `POST`          | Full lead flow: heat (`leadType=heat`, default if omitted) or solar (`leadType=solar`)                                | [Partner-Lead-Submit-API.md](./Partner-Lead-Submit-API.md)     |
 | `/updateLeadCustomer`    | `PATCH`         | Update customer contact, `callbackRequest`, and/or `outreachAllowed` on an existing lead                             | [updateLeadCustomer.md](./updateLeadCustomer.md)               |
 | `/leads`                 | `GET`           | List/fetch partner-scoped leads with Installio `sales_status` / `sales_phase`                                        | [partnerGetLeads.md](./partnerGetLeads.md)                     |
+| `/leadNote`              | `POST`          | Post a subject and message for an existing lead                                                                      | [leadNote.md](./leadNote.md)                                   |
 | `/partnerEstimateSubmit` | `POST`          | Heat pump estimate only (no Spruce job)                                                                              | [partnerEstimateSubmit.md](./partnerEstimateSubmit.md)         |
 | Lead created webhook     | Partner webhook | OMS → Partner                                                                                                        | Sends `lead_created` when a lead is created, to partner `webhookUrl` |
 | Job status webhook       | Partner webhook | OMS → Partner                                                                                                        | Sends `job.status_changed` updates to partner `webhookUrl`     |
@@ -164,7 +166,16 @@ Schedule instants are ISO-8601 UTC. `timezone` is always `Europe/London`. Format
 - Updates customer details on the lead.
 - Full spec: [updateLeadCustomer.md](./updateLeadCustomer.md)
 
-## 4.2.2 Discover / reconcile leads
+## 4.2.2 Lead note
+
+- Use `leadNote` when you already have a `leadId` and need to send a transactional update (subject and message).
+- **Method:** `POST` only.
+- Requires the same partner API key; the lead must belong to the authenticated partner.
+- Installio stores the note and files it on the matching sales record. The response does not include CRM ids.
+- A missing sales record does not fail the call. The note is filed once that record exists.
+- Full spec: [leadNote.md](./leadNote.md)
+
+## 4.2.3 Discover / reconcile leads
 
 - Use **GET `/leads`** to list or fetch partner-scoped leads and read Installio `sales_status` / `sales_phase`.
 - Full spec: [partnerGetLeads.md](./partnerGetLeads.md)
@@ -411,10 +422,11 @@ Integration guidance:
 1. Obtain partner API key and target environment URL.
 2. Integrate `partnerLeadSubmit` for lead submissions.
 3. Optionally use GET `/leads` to reconcile Installio `sales_status` / `sales_phase`.
-4. Add partner `webhookUrl` in your web app settings UI.
-5. Configure your partner `webhookUrl` endpoint to receive `lead_created`, `job.status_changed`, `sales.status_changed`, `job.scheduled`, `job.rescheduled`, and `job.unscheduled` payloads.
-6. Add monitoring for `429` and `5xx` responses.
-7. Validate behavior in dev before production rollout.
+4. Use `leadNote` to post a subject and message against an existing `leadId`.
+5. Add partner `webhookUrl` in your web app settings UI.
+6. Configure your partner `webhookUrl` endpoint to receive `lead_created`, `job.status_changed`, `sales.status_changed`, `job.scheduled`, `job.rescheduled`, and `job.unscheduled` payloads.
+7. Add monitoring for `429` and `5xx` responses.
+8. Validate behavior in dev before production rollout.
 
 ---
 
