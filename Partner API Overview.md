@@ -2,7 +2,7 @@
 
 **Audience:** External partner engineering teams integrating CRM and lead flows  
 **Status:** Shareable externally  
-**Version:** 1.3
+**Version:** 1.4
 
 This document is the standalone overview for the Installio/Breengy Partner API. It covers environments, authentication, endpoint selection, usage guidance, rate limiting, webhook events, and error handling.
 
@@ -14,6 +14,7 @@ This document is the standalone overview for the Installio/Breengy Partner API. 
 | [Partner Estimate Submit](./partnerEstimateSubmit.md) | Estimate only, no Spruce job (`POST /partnerEstimateSubmit`) |
 | [Update Lead Customer](./updateLeadCustomer.md) | Patch customer / callback / `outreachAllowed` on an existing lead (`PATCH /updateLeadCustomer`) |
 | [Get Leads](./partnerGetLeads.md) | List or fetch leads and current `sales_status` / `sales_phase` (`GET /leads`) |
+| [Webhook subscriptions](./partnerWebhookSubscriptions.md) | Set the destination URL and read the signing secret (`/partnerWebhookSubscriptions`) |
 
 Webhooks (`lead_created`, `job.status_changed`, `sales.status_changed`, `job.scheduled`, `job.rescheduled`, `job.unscheduled`) are documented in §4–§5 below. Use [Get Leads](./partnerGetLeads.md) to pull/reconcile a lead if a webhook was missed.
 
@@ -67,6 +68,7 @@ Behavior:
 | `/partnerLeadSubmit`     | `POST`          | Full lead flow: heat (`leadType=heat`, default if omitted) or solar (`leadType=solar`)                                | [Partner-Lead-Submit-API.md](./Partner-Lead-Submit-API.md)     |
 | `/updateLeadCustomer`    | `PATCH`         | Update customer contact, `callbackRequest`, and/or `outreachAllowed` on an existing lead                             | [updateLeadCustomer.md](./updateLeadCustomer.md)               |
 | `/leads`                 | `GET`           | List/fetch partner-scoped leads with Installio `sales_status` / `sales_phase`                                        | [partnerGetLeads.md](./partnerGetLeads.md)                     |
+| `/partnerWebhookSubscriptions` | `GET`, `POST`, `PUT` | Set the HTTPS URL that receives partner webhooks, and read or rotate the signing secret                    | [partnerWebhookSubscriptions.md](./partnerWebhookSubscriptions.md) |
 | `/partnerEstimateSubmit` | `POST`          | Heat pump estimate only (no Spruce job)                                                                              | [partnerEstimateSubmit.md](./partnerEstimateSubmit.md)         |
 | Lead created webhook     | Partner webhook | OMS → Partner                                                                                                        | Sends `lead_created` when a lead is created, to partner `webhookUrl` |
 | Job status webhook       | Partner webhook | OMS → Partner                                                                                                        | Sends `job.status_changed` updates to partner `webhookUrl`     |
@@ -108,9 +110,13 @@ Delivery to partner `webhookUrl`:
 - Method: `POST`
 - Header: `Content-Type: application/json`
 - User agent: `Installio-Partner-Webhook/1.0`
+- Header: `X-Installio-Timestamp` — unix seconds
+- Header: `X-Installio-Signature` — `t=<timestamp>,v1=<hex>`. `v1` is HMAC-SHA256 of `${timestamp}.${rawBody}` using the subscription `signingSecret`. Verify the exact request body. Reject timestamps older than 5 minutes.
+- The signing secret is not sent as a query parameter.
 - Timeout: 8 seconds
 - Success criteria: any `2xx` response from partner endpoint
 - Non-`2xx` or timeout/network errors are logged as delivery failures
+- Set the URL and read the secret with [webhook subscriptions](./partnerWebhookSubscriptions.md). There is no OMS field and the URL is not set when a lead is created.
 
 ## 4.1.1 Sales status webhook flow
 
@@ -169,23 +175,25 @@ Schedule instants are ISO-8601 UTC. `timezone` is always `Europe/London`. Format
 - Use **GET `/leads`** to list or fetch partner-scoped leads and read Installio `sales_status` / `sales_phase`.
 - Full spec: [partnerGetLeads.md](./partnerGetLeads.md)
 
-## 4.3 Web app: set partner `webhookUrl`
+## 4.3 Set partner `webhookUrl`
 
-Your web app includes an input field where a partner can set the destination URL for partner status webhooks.
+The destination URL is set with the partner API, using the same API key as lead submit. It is not a field in OMS, and it is not part of creating a lead.
 
-Recommended guidance text for UI:
+```http
+POST /partnerWebhookSubscriptions
+Authorization: Bearer <partner-api-key>
+Content-Type: application/json
 
-- Label: **Webhook URL**
-- Help text: **Enter your public HTTPS endpoint to receive `lead_created`, `job.status_changed`, `sales.status_changed`, `job.scheduled`, `job.rescheduled`, and `job.unscheduled` events.**
-- Validation: **Must be a valid `https://` URL reachable from the public internet.**
-- Example value: `https://partner.example.com/installio/webhooks`
+{
+  "webhookUrl": "https://partner.example.com/installio/webhooks"
+}
+```
 
-Suggested partner-facing note:
+`webhookUrl` must be a public `https://` URL. The response includes `signingSecret` (`whsec_…`). Store that value on your server and use it to verify `X-Installio-Signature` on every delivery. `GET /partnerWebhookSubscriptions` returns the secret again. `PUT` with `rotateSigningSecret: true` replaces it.
 
-> We send `POST` requests with JSON payload when a lead is created, when a job is scheduled, rescheduled, or unscheduled, and whenever OMS detects a job status or sales status change.  
-> Distinguish events with `event_type`. Your endpoint should return HTTP `2xx` quickly (within 8 seconds timeout window).
+Full request, response, and verification steps: [partnerWebhookSubscriptions.md](./partnerWebhookSubscriptions.md).
 
-![alt text here](https://gist.github.com/user-attachments/assets/ac87272c-0ded-4965-933e-1e667b49b8de)
+We send `POST` requests with a JSON body when a lead is created, when a job is scheduled, rescheduled, or unscheduled, and whenever OMS detects a job status or sales status change. Distinguish events with `event_type`. Your endpoint should return HTTP `2xx` within 8 seconds.
 
 ---
 
@@ -351,7 +359,8 @@ Notes:
 
 - All of these events are delivered to the same partner `webhookUrl` subscription(s).
 - `old_status` / `new_status` on `sales.status_changed` mirror `old_sales_status` / `new_sales_status` for compatibility.
-- New subscriptions default to every event type. Subscriptions still stored with a previous default (`job.status_changed`, or `job.status_changed` plus `sales.status_changed`) also receive `lead_created` and the schedule events. A custom `eventTypes` list that is not one of those historical defaults is delivered as stored.
+- Omit `eventTypes` and the subscription stores `job.status_changed` and `sales.status_changed`. A stored list that is only `job.status_changed` is treated as that same default. Send `eventTypes` to choose a different set. Delivery still follows that list.
+- Every delivery includes `X-Installio-Signature`. Verify it with the subscription `signingSecret` before trusting the body. See [webhook subscriptions](./partnerWebhookSubscriptions.md).
 - Delivery is best effort to active partner webhook targets. Per-target HTTP and network failures are logged and do not fail lead creation.
 - Partners should key handlers on `event_type` and treat delivery as at-least-once (use `event_id` for idempotency if needed).
 - If a `lead_created` webhook is missed, reconcile with [GET `/leads`](./partnerGetLeads.md).
@@ -411,8 +420,8 @@ Integration guidance:
 1. Obtain partner API key and target environment URL.
 2. Integrate `partnerLeadSubmit` for lead submissions.
 3. Optionally use GET `/leads` to reconcile Installio `sales_status` / `sales_phase`.
-4. Add partner `webhookUrl` in your web app settings UI.
-5. Configure your partner `webhookUrl` endpoint to receive `lead_created`, `job.status_changed`, `sales.status_changed`, `job.scheduled`, `job.rescheduled`, and `job.unscheduled` payloads.
+4. `POST /partnerWebhookSubscriptions` with your public HTTPS `webhookUrl`. Store the returned `signingSecret`.
+5. Verify `X-Installio-Signature` on each delivery, then return `2xx` within 8 seconds. Payloads are `lead_created`, `job.status_changed`, `sales.status_changed`, `job.scheduled`, `job.rescheduled`, and `job.unscheduled`.
 6. Add monitoring for `429` and `5xx` responses.
 7. Validate behavior in dev before production rollout.
 

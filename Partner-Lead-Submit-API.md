@@ -10,7 +10,7 @@
 - [Update Lead Customer](./updateLeadCustomer.md) — patch customer / callback / `outreachAllowed` on an existing lead
 - [Get Leads](./partnerGetLeads.md) — list/fetch leads and Installio `sales_status` / `sales_phase`
 - [Partner Estimate Submit](./partnerEstimateSubmit.md) — estimate-only (no Spruce job)
-- New lead push: `lead_created` on your partner `webhookUrl` ([overview §5.6](./Partner%20API%20Overview.md#56-lead_created))
+- New lead push: `lead_created` on your partner `webhookUrl` ([overview §5.6](./Partner%20API%20Overview.md#56-lead_created)). Set the URL with [POST /partnerWebhookSubscriptions](./partnerWebhookSubscriptions.md).
 - Sales status push updates: `sales.status_changed` on your partner `webhookUrl` ([overview §5.2](./Partner%20API%20Overview.md#52-salesstatus_changed))
 
 ---
