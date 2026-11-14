@@ -2,7 +2,7 @@
 
 **Audience:** External partner engineering teams integrating CRM and lead flows  
 **Status:** Shareable externally  
-**Version:** 1.4
+**Version:** 1.5
 
 This document is the standalone overview for the Installio/Breengy Partner API. It covers environments, authentication, endpoint selection, usage guidance, rate limiting, webhook events, and error handling.
 
@@ -16,7 +16,7 @@ This document is the standalone overview for the Installio/Breengy Partner API. 
 | [Get Leads](./partnerGetLeads.md) | List or fetch leads and current `sales_status` / `sales_phase` (`GET /leads`) |
 | [Webhook subscriptions](./partnerWebhookSubscriptions.md) | Set the destination URL and read the signing secret (`/partnerWebhookSubscriptions`) |
 
-Webhooks (`lead_created`, `job.status_changed`, `sales.status_changed`, `job.scheduled`, `job.rescheduled`, `job.unscheduled`) are documented in §4–§5 below. Use [Get Leads](./partnerGetLeads.md) to pull/reconcile a lead if a webhook was missed.
+Webhooks (`lead_created`, `job.created`, `job.status_changed`, `sales.status_changed`, `job.scheduled`, `job.rescheduled`, `job.unscheduled`) are documented in §4–§5 below. Use [Get Leads](./partnerGetLeads.md) to pull/reconcile a lead if a webhook was missed.
 
 ---
 
@@ -71,6 +71,7 @@ Behavior:
 | `/partnerWebhookSubscriptions` | `GET`, `POST`, `PUT` | Set the HTTPS URL that receives partner webhooks, and read or rotate the signing secret                    | [partnerWebhookSubscriptions.md](./partnerWebhookSubscriptions.md) |
 | `/partnerEstimateSubmit` | `POST`          | Heat pump estimate only (no Spruce job)                                                                              | [partnerEstimateSubmit.md](./partnerEstimateSubmit.md)         |
 | Lead created webhook     | Partner webhook | OMS → Partner                                                                                                        | Sends `lead_created` when a lead is created, to partner `webhookUrl` |
+| Job created webhook      | Partner webhook | OMS → Partner                                                                                                        | Sends `job.created` once when a job is created                  |
 | Job status webhook       | Partner webhook | OMS → Partner                                                                                                        | Sends `job.status_changed` updates to partner `webhookUrl`     |
 | Sales status webhook     | Partner webhook | OMS → Partner                                                                                                        | Sends `sales.status_changed` updates to partner `webhookUrl`   |
 | Job scheduled webhook    | Partner webhook | OMS → Partner                                                                                                        | Sends `job.scheduled` when a job schedule is confirmed          |
@@ -93,6 +94,20 @@ Trigger behavior:
 - Delivery is partner-scoped (only for leads belonging to your partner).
 - Payload includes contact details, address, Installio pipeline position (`sales_status` / `sales_phase`), identifiers, and `partner_reference` when the lead has one.
 - ECS integration fields and quote or price amounts are not included.
+- Uses the same delivery rules (HTTPS POST, 8s timeout, `2xx` success, best-effort logging on failure).
+
+## 4.0.1 Job created webhook flow
+
+When an Installio job is created for a partner's lead or property, OMS may send a webhook to your configured `webhookUrl`.
+
+This covers every way a job is created, including an install created when a proposal is accepted, a survey, and a remedial. A later update to that job does not send `job.created` again.
+
+Trigger behavior:
+
+- Sends `job.created` once, when the job document is created, for every job type.
+- Delivery is partner-scoped (only for jobs belonging to your partner).
+- Payload includes `job_id`, `job_ref`, `job_type`, `status`, `lead_id`, `project_id`, `property_id`, and the schedule if a date or time was already set.
+- A job created with a date already set, such as a survey booked at creation, can also send `job.scheduled`. Those deliveries are independent. Create your record from whichever event arrives first, then apply the other.
 - Uses the same delivery rules (HTTPS POST, 8s timeout, `2xx` success, best-effort logging on failure).
 
 ## 4.1 Job status webhook flow
@@ -193,7 +208,7 @@ Content-Type: application/json
 
 Full request, response, and verification steps: [partnerWebhookSubscriptions.md](./partnerWebhookSubscriptions.md).
 
-We send `POST` requests with a JSON body when a lead is created, when a job is scheduled, rescheduled, or unscheduled, and whenever OMS detects a job status or sales status change. Distinguish events with `event_type`. Your endpoint should return HTTP `2xx` within 8 seconds.
+We send `POST` requests with a JSON body when a lead is created, when a job is created, when a job is scheduled, rescheduled, or unscheduled, and whenever OMS detects a job status or sales status change. Distinguish events with `event_type`. Your endpoint should return HTTP `2xx` within 8 seconds.
 
 ---
 
@@ -202,11 +217,38 @@ We send `POST` requests with a JSON body when a lead is created, when a job is s
 Event types currently emitted:
 
 - `lead_created`
+- `job.created`
 - `job.status_changed`
 - `sales.status_changed`
 - `job.scheduled`
 - `job.rescheduled`
 - `job.unscheduled`
+
+### 5.0.1 `job.created`
+
+```json
+{
+  "event_type": "job.created",
+  "event_id": "uuid",
+  "occurred_at": "2026-06-01T09:00:00.000Z",
+  "job_id": "project-id",
+  "job_ref": "INS-100",
+  "job_type": "survey",
+  "status": "inPlanning",
+  "lead_id": "lead-id",
+  "project_id": "project-id",
+  "property_id": null,
+  "timezone": "Europe/London",
+  "schedule": {
+    "start_at": "2026-06-14T08:00:00.000Z",
+    "end_at": null,
+    "start_time": "2026-06-14T08:00:00.000Z"
+  },
+  "created_at": "2026-06-01T09:00:00.000Z"
+}
+```
+
+`job_type` is `survey`, `install`, `firstFix`, `remedial`, `service`, `callOut`, or `other`. `schedule.start_at`, `schedule.end_at`, and `schedule.start_time` are null when that value was not set at creation. `timezone` is always `Europe/London`.
 
 ### 5.1 `job.status_changed`
 
@@ -421,7 +463,7 @@ Integration guidance:
 2. Integrate `partnerLeadSubmit` for lead submissions.
 3. Optionally use GET `/leads` to reconcile Installio `sales_status` / `sales_phase`.
 4. `POST /partnerWebhookSubscriptions` with your public HTTPS `webhookUrl`. Store the returned `signingSecret`.
-5. Verify `X-Installio-Signature` on each delivery, then return `2xx` within 8 seconds. Payloads are `lead_created`, `job.status_changed`, `sales.status_changed`, `job.scheduled`, `job.rescheduled`, and `job.unscheduled`.
+5. Verify `X-Installio-Signature` on each delivery, then return `2xx` within 8 seconds. Payloads are `lead_created`, `job.created`, `job.status_changed`, `sales.status_changed`, `job.scheduled`, `job.rescheduled`, and `job.unscheduled`.
 6. Add monitoring for `429` and `5xx` responses.
 7. Validate behavior in dev before production rollout.
 
