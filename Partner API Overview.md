@@ -2,7 +2,7 @@
 
 **Audience:** External partner engineering teams integrating CRM and lead flows  
 **Status:** Shareable externally  
-**Version:** 1.4
+**Version:** 1.5
 
 This document is the standalone overview for the Installio/Breengy Partner API. It covers environments, authentication, endpoint selection, usage guidance, rate limiting, webhook events, and error handling.
 
@@ -14,9 +14,10 @@ This document is the standalone overview for the Installio/Breengy Partner API. 
 | [Partner Estimate Submit](./partnerEstimateSubmit.md) | Estimate only, no Spruce job (`POST /partnerEstimateSubmit`) |
 | [Update Lead Customer](./updateLeadCustomer.md) | Patch customer / callback / `outreachAllowed` on an existing lead (`PATCH /updateLeadCustomer`) |
 | [Get Leads](./partnerGetLeads.md) | List or fetch leads and current `sales_status` / `sales_phase` (`GET /leads`) |
+| [Get Jobs](./partnerGetJobs.md) | List or fetch jobs for a lead or property (`GET /jobs`) |
 | [Webhook subscriptions](./partnerWebhookSubscriptions.md) | Set the destination URL and read the signing secret (`/partnerWebhookSubscriptions`) |
 
-Webhooks (`lead_created`, `job.status_changed`, `sales.status_changed`, `job.scheduled`, `job.rescheduled`, `job.unscheduled`) are documented in §4–§5 below. Use [Get Leads](./partnerGetLeads.md) to pull/reconcile a lead if a webhook was missed.
+Webhooks (`lead_created`, `job.status_changed`, `sales.status_changed`, `job.scheduled`, `job.rescheduled`, `job.unscheduled`) are documented in §4–§5 below. Use [Get Leads](./partnerGetLeads.md) to pull/reconcile a lead, and [Get Jobs](./partnerGetJobs.md) to pull/reconcile a job, if a webhook was missed.
 
 ---
 
@@ -68,6 +69,7 @@ Behavior:
 | `/partnerLeadSubmit`     | `POST`          | Full lead flow: heat (`leadType=heat`, default if omitted) or solar (`leadType=solar`)                                | [Partner-Lead-Submit-API.md](./Partner-Lead-Submit-API.md)     |
 | `/updateLeadCustomer`    | `PATCH`         | Update customer contact, `callbackRequest`, and/or `outreachAllowed` on an existing lead                             | [updateLeadCustomer.md](./updateLeadCustomer.md)               |
 | `/leads`                 | `GET`           | List/fetch partner-scoped leads with Installio `sales_status` / `sales_phase`                                        | [partnerGetLeads.md](./partnerGetLeads.md)                     |
+| `/jobs`                  | `GET`           | List/fetch partner-scoped jobs, including surveys and remedials                                                      | [partnerGetJobs.md](./partnerGetJobs.md)                       |
 | `/partnerWebhookSubscriptions` | `GET`, `POST`, `PUT` | Set the HTTPS URL that receives partner webhooks, and read or rotate the signing secret                    | [partnerWebhookSubscriptions.md](./partnerWebhookSubscriptions.md) |
 | `/partnerEstimateSubmit` | `POST`          | Heat pump estimate only (no Spruce job)                                                                              | [partnerEstimateSubmit.md](./partnerEstimateSubmit.md)         |
 | Lead created webhook     | Partner webhook | OMS → Partner                                                                                                        | Sends `lead_created` when a lead is created, to partner `webhookUrl` |
@@ -174,6 +176,13 @@ Schedule instants are ISO-8601 UTC. `timezone` is always `Europe/London`. Format
 
 - Use **GET `/leads`** to list or fetch partner-scoped leads and read Installio `sales_status` / `sales_phase`.
 - Full spec: [partnerGetLeads.md](./partnerGetLeads.md)
+
+## 4.2.3 Discover / reconcile jobs
+
+- Use **GET `/jobs`** to list or fetch partner-scoped jobs, including a survey or remedial raised by Installio, and to catch up when a job webhook was missed.
+- `lead_id` returns jobs linked to that lead. It does not add other jobs on the same property.
+- `property_id` filters jobs that already store that id. Many jobs do not have a `property_id` yet.
+- Full spec: [partnerGetJobs.md](./partnerGetJobs.md)
 
 ## 4.3 Set partner `webhookUrl`
 
@@ -419,7 +428,7 @@ Integration guidance:
 
 1. Obtain partner API key and target environment URL.
 2. Integrate `partnerLeadSubmit` for lead submissions.
-3. Optionally use GET `/leads` to reconcile Installio `sales_status` / `sales_phase`.
+3. Optionally use GET `/leads` to reconcile Installio `sales_status` / `sales_phase`, and GET `/jobs` to reconcile jobs.
 4. `POST /partnerWebhookSubscriptions` with your public HTTPS `webhookUrl`. Store the returned `signingSecret`.
 5. Verify `X-Installio-Signature` on each delivery, then return `2xx` within 8 seconds. Payloads are `lead_created`, `job.status_changed`, `sales.status_changed`, `job.scheduled`, `job.rescheduled`, and `job.unscheduled`.
 6. Add monitoring for `429` and `5xx` responses.

@@ -5,7 +5,7 @@
 **Method:** `GET`  
 **Purpose:** Discover and reconcile partner-scoped leads, including Installio-normalized commercial sales status (`sales_status` / `sales_phase`).
 
-**Related:** Same partner API keys as [Partner Lead Submit](./Partner-Lead-Submit-API.md). New leads are pushed via `lead_created`, and sales status changes via `sales.status_changed`, on the partner `webhookUrl` ([Partner API overview](./Partner%20API%20Overview.md)). Set that URL with [POST /partnerWebhookSubscriptions](./partnerWebhookSubscriptions.md).
+**Related:** Same partner API keys as [Partner Lead Submit](./Partner-Lead-Submit-API.md). Jobs for a lead are listed with [Get Jobs](./partnerGetJobs.md). New leads are pushed via `lead_created`, and sales status changes via `sales.status_changed`, on the partner `webhookUrl` ([Partner API overview](./Partner%20API%20Overview.md)). Set that URL with [POST /partnerWebhookSubscriptions](./partnerWebhookSubscriptions.md).
 
 ---
 
