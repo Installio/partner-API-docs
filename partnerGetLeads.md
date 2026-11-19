@@ -12,7 +12,7 @@
 ## 1. When to use this endpoint
 
 | Scenario | Endpoint |
-| -------- | -------- |
+| --- | --- |
 | Create a new lead | `partnerLeadSubmit` / `partnerEstimateSubmit` |
 | Correct customer contact / callback / `outreachAllowed` | `updateLeadCustomer` |
 | **List or look up leads for CRM reconciliation** | **`leads` (GET)** |
@@ -44,14 +44,14 @@ https://europe-west2-co-pilot-b7f8e.cloudfunctions.net/leads
 
 ## 3. Query parameters
 
-| Param | Aliases | Type | Description |
-| ----- | ------- | ---- | ----------- |
-| `lead_id` | `leadId` | string | Fetch a single lead by id (still partner-scoped) |
-| `limit` | — | integer | Page size (default `50`, max `100`) |
-| `cursor` | — | string | Opaque pagination cursor from a previous `next_cursor` |
-| `sales_status` | `salesStatus` | string | Filter by Installio fine-grain status (snake_case) |
-| `lead_type` | `leadType` | string | Filter by `heat` or `solar` |
-| `updated_after` | `updatedAfter` | ISO-8601 | Keep leads with `updated_at` ≥ this timestamp |
+| Param           | Aliases        | Type     | Description                                            |
+| --------------- | -------------- | -------- | ------------------------------------------------------ |
+| `lead_id`       | `leadId`       | string   | Fetch a single lead by id (still partner-scoped)       |
+| `limit`         | —              | integer  | Page size (default `50`, max `100`)                    |
+| `cursor`        | —              | string   | Opaque pagination cursor from a previous `next_cursor` |
+| `sales_status`  | `salesStatus`  | string   | Filter by Installio fine-grain status (snake_case)     |
+| `lead_type`     | `leadType`     | string   | Filter by `heat` or `solar`                            |
+| `updated_after` | `updatedAfter` | ISO-8601 | Keep leads with `updated_at` ≥ this timestamp          |
 
 Notes:
 
@@ -105,29 +105,27 @@ When `lead_id` is provided, the same shape is returned with a single entry in `l
 
 ### Field notes
 
-| Field | Description |
-| ----- | ----------- |
-| `sales_status` | Installio snake_case status. Unmapped values are returned as `null`. |
-| `sales_phase` | Coarse phase: `new`, `qualifying`, `survey`, `quote`, `validation`, `won`, `lost` |
-| `ecs` | Present when ECS metadata was stored on the lead; otherwise `null` |
+| Field          | Description                                                                       |
+| -------------- | --------------------------------------------------------------------------------- |
+| `sales_status` | Installio snake_case status. Unmapped values are returned as `null`.              |
+| `sales_phase`  | Coarse phase: `new`, `qualifying`, `survey`, `quote`, `validation`, `won`, `lost` |
+| `ecs`          | Present when ECS metadata was stored on the lead; otherwise `null`                |
 
 Supported `sales_status` values: `new`, `attempted_contact`, `contacted`, `consultation_booked`, `consultation_completed`, `survey_required`, `survey_booked`, `survey_in_progress`, `survey_completed`, `quote_in_progress`, `proposal_sent`, `proposal_accepted`, `validation_survey_booked`, `validation_survey_completed`, `validation_in_progress`, `validation_completed`, `won`, `closed_lost`.
-
-`ready_for_oms` is internal. Leads at Sales Handover are returned as `proposal_accepted` with `sales_phase` `won`. Filtering `sales_status=ready_for_oms` matches those leads as `proposal_accepted`.
 
 ---
 
 ## 5. Errors
 
-| HTTP | Meaning |
-| ---- | ------- |
+| HTTP  | Meaning                                                                      |
+| ----- | ---------------------------------------------------------------------------- |
 | `400` | Invalid `limit`, `cursor`, `updated_after`, or unknown `sales_status` filter |
-| `401` | Missing/invalid/disabled API key |
-| `403` | Partner disabled, or lead/cursor not owned by this partner |
-| `404` | Partner or lead not found |
-| `405` | Method not allowed |
-| `429` | Rate limit exceeded |
-| `500` | Internal error (including missing Firestore composite index) |
+| `401` | Missing/invalid/disabled API key                                             |
+| `403` | Partner disabled, or lead/cursor not owned by this partner                   |
+| `404` | Partner or lead not found                                                    |
+| `405` | Method not allowed                                                           |
+| `429` | Rate limit exceeded                                                          |
+| `500` | Internal error (including missing Firestore composite index)                 |
 
 ---
 
