@@ -113,6 +113,8 @@ When `lead_id` is provided, the same shape is returned with a single entry in `l
 
 Supported `sales_status` values: `new`, `attempted_contact`, `contacted`, `consultation_booked`, `consultation_completed`, `survey_required`, `survey_booked`, `survey_in_progress`, `survey_completed`, `quote_in_progress`, `proposal_sent`, `proposal_accepted`, `validation_survey_booked`, `validation_survey_completed`, `validation_in_progress`, `validation_completed`, `won`, `closed_lost`.
 
+`ready_for_oms` is internal. Leads at Sales Handover are returned as `proposal_accepted` with `sales_phase` `won`. Filtering `sales_status=ready_for_oms` matches those leads as `proposal_accepted`.
+
 ---
 
 ## 5. Errors

@@ -45,7 +45,7 @@ https://europe-west2-co-pilot-b7f8e.cloudfunctions.net/partnerWebhookSubscriptio
 | `webhookUrl` | yes | Public `https://` URL |
 | `enabled` | no | Defaults to `true`. `false` pauses delivery |
 | `description` | no | Stored label. Empty becomes `null` |
-| `eventTypes` | no | Omit to store `job.status_changed` and `sales.status_changed`. A custom array replaces that default |
+| `eventTypes` | no | Omit to store `job.status_changed`, `sales.status_changed`, `job.created`, `lead_created`, `job.scheduled`, `job.rescheduled`, and `job.unscheduled`. A custom array replaces that default |
 
 You cannot choose `signingSecret`. Installio generates it.
 
@@ -56,7 +56,7 @@ You cannot choose `signingSecret`. Installio generates it.
     "id": "subscription-id",
     "webhookUrl": "https://partner.example.com/installio/webhooks",
     "enabled": true,
-    "eventTypes": ["job.status_changed", "sales.status_changed"],
+    "eventTypes": ["job.status_changed", "sales.status_changed", "job.created", "lead_created", "job.scheduled", "job.rescheduled", "job.unscheduled"],
     "description": "ECS status listener",
     "signingSecret": "whsec_…",
     "createdAt": "2026-11-05T12:00:00.000Z",

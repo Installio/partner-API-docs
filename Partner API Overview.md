@@ -13,10 +13,11 @@ This document is the standalone overview for the Installio/Breengy Partner API. 
 | [Partner Lead Submit](./Partner-Lead-Submit-API.md) | Create heat or solar leads (`POST /partnerLeadSubmit`) |
 | [Partner Estimate Submit](./partnerEstimateSubmit.md) | Estimate only, no Spruce job (`POST /partnerEstimateSubmit`) |
 | [Update Lead Customer](./updateLeadCustomer.md) | Patch customer / callback / `outreachAllowed` on an existing lead (`PATCH /updateLeadCustomer`) |
+| [Update lead proposal](./updateLeadProposal.md) | Mark a lead `proposal_accepted` or `closed_lost` (`POST /updateLeadProposal`) |
 | [Get Leads](./partnerGetLeads.md) | List or fetch leads and current `sales_status` / `sales_phase` (`GET /leads`) |
 | [Webhook subscriptions](./partnerWebhookSubscriptions.md) | Set the destination URL and read the signing secret (`/partnerWebhookSubscriptions`) |
 
-Webhooks (`lead_created`, `job.status_changed`, `sales.status_changed`, `job.scheduled`, `job.rescheduled`, `job.unscheduled`) are documented in §4–§5 below. Use [Get Leads](./partnerGetLeads.md) to pull/reconcile a lead if a webhook was missed.
+Webhooks (`lead_created`, `job.created`, `job.status_changed`, `sales.status_changed`, `job.scheduled`, `job.rescheduled`, `job.unscheduled`) are documented in §4–§5 below. Use [Get Leads](./partnerGetLeads.md) to pull/reconcile a lead if a webhook was missed.
 
 ---
 
@@ -67,10 +68,12 @@ Behavior:
 | ------------------------ | --------------- | -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
 | `/partnerLeadSubmit`     | `POST`          | Full lead flow: heat (`leadType=heat`, default if omitted) or solar (`leadType=solar`)                                | [Partner-Lead-Submit-API.md](./Partner-Lead-Submit-API.md)     |
 | `/updateLeadCustomer`    | `PATCH`         | Update customer contact, `callbackRequest`, and/or `outreachAllowed` on an existing lead                             | [updateLeadCustomer.md](./updateLeadCustomer.md)               |
+| `/updateLeadProposal`    | `POST`          | Mark a partner lead `proposal_accepted` or `closed_lost`                                                             | [updateLeadProposal.md](./updateLeadProposal.md)               |
 | `/leads`                 | `GET`           | List/fetch partner-scoped leads with Installio `sales_status` / `sales_phase`                                        | [partnerGetLeads.md](./partnerGetLeads.md)                     |
 | `/partnerWebhookSubscriptions` | `GET`, `POST`, `PUT` | Set the HTTPS URL that receives partner webhooks, and read or rotate the signing secret                    | [partnerWebhookSubscriptions.md](./partnerWebhookSubscriptions.md) |
 | `/partnerEstimateSubmit` | `POST`          | Heat pump estimate only (no Spruce job)                                                                              | [partnerEstimateSubmit.md](./partnerEstimateSubmit.md)         |
 | Lead created webhook     | Partner webhook | OMS → Partner                                                                                                        | Sends `lead_created` when a lead is created, to partner `webhookUrl` |
+| Job created webhook      | Partner webhook | OMS → Partner                                                                                                        | Sends `job.created` once when a job is created                  |
 | Job status webhook       | Partner webhook | OMS → Partner                                                                                                        | Sends `job.status_changed` updates to partner `webhookUrl`     |
 | Sales status webhook     | Partner webhook | OMS → Partner                                                                                                        | Sends `sales.status_changed` updates to partner `webhookUrl`   |
 | Job scheduled webhook    | Partner webhook | OMS → Partner                                                                                                        | Sends `job.scheduled` when a job schedule is confirmed          |
@@ -170,7 +173,15 @@ Schedule instants are ISO-8601 UTC. `timezone` is always `Europe/London`. Format
 - Updates customer details on the lead.
 - Full spec: [updateLeadCustomer.md](./updateLeadCustomer.md)
 
-## 4.2.2 Discover / reconcile leads
+## 4.2.2 Update lead proposal
+
+- Use **POST `/updateLeadProposal`** when the partner owns the proposal stage and needs to mark their lead `proposal_accepted` or `closed_lost`.
+- `proposal_accepted` marks the lead accepted. The response does not include a job. A heat-trial lead waits for Sales Handover; the partner then receives `job.created`.
+- Solar `proposal_accepted` updates the lead only. The install job still waits for Design Validated.
+- `closed_lost` closes the lead and does not create a job.
+- Full spec: [updateLeadProposal.md](./updateLeadProposal.md)
+
+## 4.2.3 Discover / reconcile leads
 
 - Use **GET `/leads`** to list or fetch partner-scoped leads and read Installio `sales_status` / `sales_phase`.
 - Full spec: [partnerGetLeads.md](./partnerGetLeads.md)
@@ -193,7 +204,7 @@ Content-Type: application/json
 
 Full request, response, and verification steps: [partnerWebhookSubscriptions.md](./partnerWebhookSubscriptions.md).
 
-We send `POST` requests with a JSON body when a lead is created, when a job is scheduled, rescheduled, or unscheduled, and whenever OMS detects a job status or sales status change. Distinguish events with `event_type`. Your endpoint should return HTTP `2xx` within 8 seconds.
+We send `POST` requests with a JSON body when a lead or job is created, when a job is scheduled, rescheduled, or unscheduled, and whenever OMS detects a job status or sales status change. Distinguish events with `event_type`. Your endpoint should return HTTP `2xx` within 8 seconds.
 
 ---
 
@@ -202,11 +213,42 @@ We send `POST` requests with a JSON body when a lead is created, when a job is s
 Event types currently emitted:
 
 - `lead_created`
+- `job.created`
 - `job.status_changed`
 - `sales.status_changed`
 - `job.scheduled`
 - `job.rescheduled`
 - `job.unscheduled`
+
+### 5.0 `job.created`
+
+Sent once, when a job document is created, for every job type. A later update does not send `job.created` again. Delivery is partner-scoped.
+
+A job created with a date already set can also produce `job.scheduled` from the schedule trigger. Those deliveries are independent. Create the job record from whichever event arrives first, then apply the other.
+
+```json
+{
+  "event_type": "job.created",
+  "event_id": "uuid",
+  "occurred_at": "2026-06-01T09:00:00.000Z",
+  "job_id": "project-id",
+  "job_ref": "INS-100",
+  "job_type": "survey",
+  "status": "inPlanning",
+  "lead_id": "lead-id",
+  "project_id": "project-id",
+  "property_id": null,
+  "timezone": "Europe/London",
+  "schedule": {
+    "start_at": "2026-06-14T08:00:00.000Z",
+    "end_at": null,
+    "start_time": "2026-06-14T08:00:00.000Z"
+  },
+  "created_at": "2026-06-01T09:00:00.000Z"
+}
+```
+
+`job_type` is `survey`, `install`, `firstFix`, `remedial`, `service`, `callOut`, or `other`. `schedule` fields are null when that date or time was not set at creation. `timezone` is always `Europe/London`.
 
 ### 5.1 `job.status_changed`
 
@@ -246,6 +288,8 @@ Event types currently emitted:
 Supported `sales_status` values (fine-grain): `new`, `attempted_contact`, `contacted`, `consultation_booked`, `consultation_completed`, `survey_required`, `survey_booked`, `survey_in_progress`, `survey_completed`, `quote_in_progress`, `proposal_sent`, `proposal_accepted`, `validation_survey_booked`, `validation_survey_completed`, `validation_in_progress`, `validation_completed`, `won`, `closed_lost`.
 
 Supported `sales_phase` values (coarse / partner default): `new`, `qualifying`, `survey`, `quote`, `validation`, `won`, `lost`.
+
+Sales Handover is internal. A heat-trial lead stays `proposal_accepted` / `won` for partners when it reaches Sales Handover, and `sales.status_changed` is not sent for that step. The install job arrives as `job.created`.
 
 ### 5.3 `job.scheduled`
 
@@ -359,7 +403,7 @@ Notes:
 
 - All of these events are delivered to the same partner `webhookUrl` subscription(s).
 - `old_status` / `new_status` on `sales.status_changed` mirror `old_sales_status` / `new_sales_status` for compatibility.
-- Omit `eventTypes` and the subscription stores `job.status_changed` and `sales.status_changed`. A stored list that is only `job.status_changed` is treated as that same default. Send `eventTypes` to choose a different set. Delivery still follows that list.
+- Omit `eventTypes` and the subscription stores `job.status_changed`, `sales.status_changed`, `job.created`, `lead_created`, `job.scheduled`, `job.rescheduled`, and `job.unscheduled`. Send `eventTypes` to choose a different set. Delivery still follows that list.
 - Every delivery includes `X-Installio-Signature`. Verify it with the subscription `signingSecret` before trusting the body. See [webhook subscriptions](./partnerWebhookSubscriptions.md).
 - Delivery is best effort to active partner webhook targets. Per-target HTTP and network failures are logged and do not fail lead creation.
 - Partners should key handlers on `event_type` and treat delivery as at-least-once (use `event_id` for idempotency if needed).
@@ -421,7 +465,7 @@ Integration guidance:
 2. Integrate `partnerLeadSubmit` for lead submissions.
 3. Optionally use GET `/leads` to reconcile Installio `sales_status` / `sales_phase`.
 4. `POST /partnerWebhookSubscriptions` with your public HTTPS `webhookUrl`. Store the returned `signingSecret`.
-5. Verify `X-Installio-Signature` on each delivery, then return `2xx` within 8 seconds. Payloads are `lead_created`, `job.status_changed`, `sales.status_changed`, `job.scheduled`, `job.rescheduled`, and `job.unscheduled`.
+5. Verify `X-Installio-Signature` on each delivery, then return `2xx` within 8 seconds. Payloads are `lead_created`, `job.created`, `job.status_changed`, `sales.status_changed`, `job.scheduled`, `job.rescheduled`, and `job.unscheduled`.
 6. Add monitoring for `429` and `5xx` responses.
 7. Validate behavior in dev before production rollout.
 
