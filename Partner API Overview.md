@@ -181,7 +181,8 @@ Schedule instants are ISO-8601 UTC. `timezone` is always `Europe/London`. Format
 
 - Use **GET `/jobs`** to list or fetch partner-scoped jobs, including a survey or remedial raised by Installio, and to catch up when a job webhook was missed.
 - `lead_id` returns jobs linked to that lead. It does not add other jobs on the same property.
-- `property_id` filters jobs that already store that id. Many jobs do not have a `property_id` yet.
+- `property_id` returns every job linked to that property, including a survey or remedial on a different lead.
+- Each job includes `job_url`, the same URL for the partner portal and OMS.
 - Full spec: [partnerGetJobs.md](./partnerGetJobs.md)
 
 ## 4.3 Set partner `webhookUrl`

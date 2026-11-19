@@ -18,7 +18,7 @@
 | Receive a push when a job's status changes | partner `webhookUrl` (`job.status_changed`) |
 | Receive a push when a job is scheduled, rescheduled, or unscheduled | partner `webhookUrl` |
 
-`lead_id` returns jobs linked to that lead. It does not include other jobs on the same property that are not linked to the lead.
+`lead_id` returns jobs linked to that lead. It does not include other jobs on the same property. Use `property_id` for those, including a survey or remedial Installio raised on that property.
 
 ---
 
@@ -47,7 +47,7 @@ https://europe-west2-co-pilot-b7f8e.cloudfunctions.net/jobs
 | ----- | ------- | ---- | ----------- |
 | `job_id` | `jobId` | string | Fetch a single job by id (still partner-scoped) |
 | `lead_id` | `leadId` | string | Jobs linked to this lead |
-| `property_id` | `propertyId` | string | Jobs that store this property id |
+| `property_id` | `propertyId` | string | Every job linked to this property |
 | `job_type` | `jobType` | string | `survey`, `install`, `firstFix`, `remedial`, `service`, `callOut`, or `other` |
 | `status` | — | string | Filter by job status |
 | `updated_after` | `updatedAfter` | ISO-8601 | Keep jobs with `updated_at` ≥ this timestamp |
@@ -58,7 +58,7 @@ Notes:
 
 - List queries are scoped to the partner on the API key. Jobs belonging to other partners are never returned (**403** on a single-job or cursor mismatch).
 - `lead_id`, `property_id`, `job_type`, `status`, and `updated_after` are applied after the partner-scoped Firestore page. Continue with `next_cursor` if a filtered page is short.
-- `property_id` matches the id stored on the job. Many jobs do not have one yet, so a property filter can be empty.
+- `property_id` is the property the job was linked to, by UDPRN or postcode. It is `null` only until that link exists. Filtering by it returns every job on that property, including jobs that belong to a different lead.
 - A `lead_id` that belongs to another partner returns **403**. A missing lead returns **404**.
 - Sorting is newest-first by the job's created date.
 
@@ -78,7 +78,8 @@ Notes:
       "status": "inPlanning",
       "lead_id": "lead-id",
       "project_id": "project-id",
-      "property_id": null,
+      "property_id": "property-id",
+      "job_url": "https://oms.installio.co.uk/jobs/project-id",
       "timezone": "Europe/London",
       "schedule": {
         "start_at": "2026-06-14T08:00:00.000Z",
@@ -95,7 +96,9 @@ Notes:
 
 When `job_id` is provided, the same shape is returned with a single entry in `jobs`, a top-level `job` object, and `next_cursor: null`.
 
-`timezone` is always `Europe/London`. Schedule instants are ISO-8601 UTC. A schedule field is `null` when that date or time is not set. `property_id` is `null` when the job has no property id.
+`timezone` is always `Europe/London`. Schedule instants are ISO-8601 UTC. A schedule field is `null` when that date or time is not set. `property_id` is `null` until the job is linked to a property.
+
+`job_url` is the stable job URL. The same path opens the job in the partner portal and in OMS. On production it is `https://oms.installio.co.uk/jobs/{job_id}`. On dev it uses the dev OMS host.
 
 This response does not include tasks, documents, or serial numbers.
 
