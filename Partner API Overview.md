@@ -108,6 +108,7 @@ Trigger behavior:
 - Delivery is partner-scoped (only for jobs belonging to your partner).
 - Payload includes `job_id`, `job_ref`, `job_type`, `status`, `lead_id`, `project_id`, `property_id`, and the schedule if a date or time was already set.
 - A job created with a date already set does not also send `job.scheduled`. Read that date from `schedule` on `job.created`. `job.scheduled` is sent only when a date is added later to an existing job.
+- Creation does not send `job.status_changed`. The initial status is `status` on `job.created`.
 - Uses the same delivery rules (HTTPS POST, 8s timeout, `2xx` success, best-effort logging on failure).
 
 ## 4.1 Job status webhook flow
@@ -116,7 +117,7 @@ When an Installio job/project status changes, OMS may send a webhook to your con
 
 Trigger behavior:
 
-- Sends webhook only when the job status value actually changes.
+- Sends `job.status_changed` only when a later update changes the job status. Creation does not send it. The initial status is `status` on `job.created`.
 - Delivery is partner-scoped (only for jobs belonging to your partner).
 - `job_id` is included when available.
 
