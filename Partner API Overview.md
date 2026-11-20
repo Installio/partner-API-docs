@@ -107,7 +107,7 @@ Trigger behavior:
 - Sends `job.created` once, when the job document is created, for every job type.
 - Delivery is partner-scoped (only for jobs belonging to your partner).
 - Payload includes `job_id`, `job_ref`, `job_type`, `status`, `lead_id`, `project_id`, `property_id`, and the schedule if a date or time was already set.
-- A job created with a date already set, such as a survey booked at creation, can also send `job.scheduled`. Those deliveries are independent. Create your record from whichever event arrives first, then apply the other.
+- A job created with a date already set does not also send `job.scheduled`. Read that date from `schedule` on `job.created`. `job.scheduled` is sent only when a date is added later to an existing job.
 - Uses the same delivery rules (HTTPS POST, 8s timeout, `2xx` success, best-effort logging on failure).
 
 ## 4.1 Job status webhook flow
@@ -153,7 +153,7 @@ These events fire at the same moments as the partner schedule emails. They are n
 
 Trigger behavior:
 
-- `job.scheduled` when a job gains a confirmed start date and is not cancelled. Jobs created with a date already set (for example a survey booked when the job is created) are included. A job confirmed again after it was unscheduled sends `job.scheduled`, not `job.rescheduled`.
+- `job.scheduled` when an existing job gains a confirmed start date and is not cancelled. A job created with a date already set does not send `job.scheduled`; that date is on `job.created`. A job confirmed again after it was unscheduled sends `job.scheduled`, not `job.rescheduled`.
 - `job.rescheduled` when a confirmed schedule changes.
   - Fixed-duration jobs (`survey`, `service`, `callOut`): the start date or start time changes. A change to the end date alone does not send an event.
   - Date-range jobs (`install`, `firstFix`, `remedial`, `other`): the start date, end date, or start time changes.
